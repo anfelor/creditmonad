@@ -1,13 +1,32 @@
 spec-version: 0.36.0
 name: creditmonad
 version: 1.0.0
-synopsis: Reasoning about amortized complexity
+synopsis: Reasoning about amortized time complexity
+description: |
+  Persistent data structures are ubiquitous in functional
+  programming languages and their designers frequently have to
+  reason about amortized time complexity. But proving amortized
+  bounds is difficult in a persistent setting, and pen-and-paper
+  proofs give little assurance of correctness, while a full
+  mechanization in a proof assistant can be too involved for the
+  casual user. This package defines a domain specific
+  language for testing the amortized time complexity of
+  persistent data structures using QuickCheck. The DSL can
+  give strong evidence of correctness, while imposing low
+  overhead on the user. The package includes implementations
+  and tests of all lazy data structures given in Okasaki's book.
+  See the paper "Lightweight Testing of Persistent Amortized Time
+  Complexity in the Credit Monad" (2025) for a detailed description.
+author: Anton Lorenzen <anton.lorenzen@ed.ac.uk>
+maintainer:
+- Anton Lorenzen <anton.lorenzen@ed.ac.uk>
+license: BSD-3-Clause
+github: anfelor/creditmonad
 category: Development
-extra-source-files:
+extra-doc-files:
   - CHANGELOG.md
-  - resources/**/*
 
-ghc-options: -Wall -Wno-name-shadowing -fworker-wrapper-cbv -O2 -threaded -rtsopts
+ghc-options: -Wall -Wno-name-shadowing
 
 dependencies:
   - base >= 4.13 && < 5
@@ -62,3 +81,4 @@ executable:
   dependencies:
     - creditmonad
     - unliftio >= 0.2 && < 0.3
+  ghc-options: -O2 -fworker-wrapper-cbv -threaded -rtsopts

@@ -1,16 +1,39 @@
-cabal-version: 1.12
+cabal-version: 2.2
 
--- This file has been generated from package.yaml by hpack version 0.37.0.
+-- This file has been generated from package.yaml by hpack version 0.38.1.
 --
 -- see: https://github.com/sol/hpack
 
 name:           creditmonad
 version:        1.0.0
-synopsis:       Reasoning about amortized complexity
+synopsis:       Reasoning about amortized time complexity
+description:    Persistent data structures are ubiquitous in functional
+                programming languages and their designers frequently have to
+                reason about amortized time complexity. But proving amortized
+                bounds is difficult in a persistent setting, and pen-and-paper
+                proofs give little assurance of correctness, while a full
+                mechanization in a proof assistant can be too involved for the
+                casual user. This package defines a domain specific
+                language for testing the amortized time complexity of
+                persistent data structures using QuickCheck. The DSL can
+                give strong evidence of correctness, while imposing low
+                overhead on the user. The package includes implementations
+                and tests of all lazy data structures given in Okasaki's book.
+                See the paper "Lightweight Testing of Persistent Amortized Time
+                Complexity in the Credit Monad" (2025) for a detailed description.
 category:       Development
+homepage:       https://github.com/anfelor/creditmonad#readme
+bug-reports:    https://github.com/anfelor/creditmonad/issues
+author:         Anton Lorenzen <anton.lorenzen@ed.ac.uk>
+maintainer:     Anton Lorenzen <anton.lorenzen@ed.ac.uk>
+license:        BSD-3-Clause
 build-type:     Simple
-extra-source-files:
+extra-doc-files:
     CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/anfelor/creditmonad
 
 library
   exposed-modules:
@@ -49,7 +72,7 @@ library
       Control.Monad.Credit.CounterM
   hs-source-dirs:
       src
-  ghc-options: -Wall -Wno-name-shadowing -fworker-wrapper-cbv -O2 -threaded -rtsopts
+  ghc-options: -Wall -Wno-name-shadowing
   build-depends:
       QuickCheck >=2.14 && <3
     , STMonadTrans ==0.4.*
@@ -66,7 +89,7 @@ executable creditmonad
       Intro
   hs-source-dirs:
       app
-  ghc-options: -Wall -Wno-name-shadowing -fworker-wrapper-cbv -O2 -threaded -rtsopts
+  ghc-options: -Wall -Wno-name-shadowing -O2 -fworker-wrapper-cbv -threaded -rtsopts
   build-depends:
       QuickCheck >=2.14 && <3
     , STMonadTrans ==0.4.*
