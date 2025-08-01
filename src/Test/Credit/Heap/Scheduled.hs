@@ -3,7 +3,7 @@
 module Test.Credit.Heap.Scheduled where
 
 import Prettyprinter (Pretty)
-import Control.Monad.Credit hiding (exec)
+import Control.Monad.Credit
 import Test.Credit
 import Test.Credit.Heap.Base
 
@@ -64,10 +64,10 @@ mrg ds1 ds2 = credit 1 ds1 >> smatch ds1
       (_, Zero) -> SCons d1 <$> mrg ds1 ds2
       (One t1, One t2) -> SCons Zero <$> (insTree (link t1 t2) =<< mrg ds1 ds2)))
 
-normalize :: MonadCredit m => Ord a => Stream m (Digit a) -> m (Stream m (Digit a))
+normalize :: MonadCredit m => Ord a => Stream m (Digit a) -> m ()
 normalize ds = credit 1 ds >> smatch ds
-    (pure SNil)
-    (\d ds -> SCons d <$> normalize ds)
+    (pure ())
+    (\_ ds -> normalize ds)
 
 exec :: MonadCredit m => Schedule m a -> m (Schedule m a)
 exec [] = pure []
@@ -119,7 +119,7 @@ instance Heap Scheduled where
 
 instance BoundedHeap Scheduled where
   hcost _ (Insert _) = 5
-  hcost n Merge = 4 + 8 * log2 n
+  hcost n Merge = 8 * (1 + log2 n)
   hcost n SplitMin = 1 + 5 * log2 n + 6 * log2 (2 * n)
 
 instance MemoryCell m a => MemoryCell m (Tree a) where

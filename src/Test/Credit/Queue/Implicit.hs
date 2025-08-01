@@ -24,12 +24,10 @@ data Implicit a m
   | Deep (Digit a) (Thunk m (ILazyCon m) (Implicit (a, a) m)) (Digit a)
 
 data ILazyCon m a where
-  IPure :: a -> ILazyCon m a
   ISnoc :: Thunk m (ILazyCon m) (Implicit a m) -> a -> ILazyCon m (Implicit a m)
   ITail :: Implicit a m -> ILazyCon m (Implicit a m)
 
 instance MonadCredit m => HasStep (ILazyCon m) m where
-  step (IPure x) = pure x
   step (ISnoc t p) = do
     q <- force t
     snoc' q p
@@ -60,7 +58,7 @@ snoc' q y = do
   case q of
     Shallow Zero -> pure $ Shallow (One y)
     Shallow (One x) -> do
-      middle <- delay $ IPure $ Shallow Zero
+      middle <- value $ Shallow Zero
       deep (Two x y) middle Zero
     Deep front middle Zero -> do
       middle `creditWith` 1
@@ -100,7 +98,6 @@ instance Show a => Show (Digit a) where
 showThunk :: (MonadLazy m, Show a)
           => Thunk m (ILazyCon m) (Implicit a m) -> m String
 showThunk t = lazymatch t showImplicit $ \case
-    IPure a -> showImplicit a
     ISnoc middle xy -> do
       m <- showThunk middle
       pure $ "(snoc " ++ m ++ " " ++ show xy ++ ")"
@@ -143,9 +140,6 @@ instance MemoryCell m a => MemoryCell m (Digit a) where
     pure $ mkMCell "Two" [a', b']
 
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (ILazyCon m a) where
-  prettyCell (IPure x) = do
-    x' <- prettyCell x
-    pure $ mkMCell "IPure" [x']
   prettyCell (ISnoc t _) = do
     t' <- prettyCell t
     pure $ mkMCell "ISnoc" [t']

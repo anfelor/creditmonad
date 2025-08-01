@@ -35,7 +35,7 @@ import Test.Credit.RandomAccess.Binary
 import Test.Credit.RandomAccess.Zeroless
 
 run :: forall t op. (MemoryStructure t, DataStructure t op) => Args -> Strategy -> IO Result
-run args strat = quickCheckWithResult args $ checkCreditsMemory @t strat
+run args strat = quickCheckWithResult args $ checkCreditsTrace @t strat
 
 newtype Alpha = Alpha Char
   deriving (Eq, Ord)

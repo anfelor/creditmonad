@@ -39,6 +39,8 @@ class Monad m => MonadLazy m where
   data Thunk m :: (Type -> Type) -> Type -> Type
   delay :: t a -> m (Thunk m t a)
   -- ^ delay creates a new cell with the given thunk
+  value :: a -> m (Thunk m t a)
+  -- ^ value creates a new cell with the given value
   force :: HasStep t m => Thunk m t a -> m a
   -- ^ force retrieves and evaluates the thunk of a cell
   lazymatch :: Thunk m t a -> (a -> m b) -> (t a -> m b) -> m b
@@ -51,7 +53,7 @@ class HasStep t m where
 
 -- | A basic thunk that contains the computation to be evaluated.
 -- This type can be used to express any thunk but its disadvantage is that
--- it will be printed merely as "<lazy>".
+-- its content cannot be inspected.
 newtype Lazy m a = Lazy (m a)
 
 instance HasStep (Lazy m) m where
@@ -108,7 +110,7 @@ instance (MemoryCell m a, MemoryCell m b, MemoryCell m c) => MemoryCell m (a, b,
 instance Monad m => MemoryCell m (Lazy m a) where
   prettyCell (Lazy _) = pure $ mkMCell "<lazy>" []
 
-class Monad m => MonadMemory m where
+class MonadLazy m => MonadMemory m where
   prettyThunk :: (MemoryCell m a, MemoryCell m (t a)) => Thunk m t a -> m Memory
 
 instance (MonadMemory m, MemoryCell m a, MemoryCell m (t a)) => MemoryCell m (Thunk m t a) where

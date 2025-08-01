@@ -19,7 +19,7 @@ instance Arbitrary a => Arbitrary (RandomAccessOp a) where
     ]
 
 class RandomAccess q where
-  empty :: MonadCredit m => m (q a m)
+  empty :: MonadLazy m => m (q a m)
   cons :: MonadCredit m => a -> q a m  -> m (q a m)
   uncons :: MonadCredit m => q a m -> m (Maybe (a, q a m))
   lookup :: MonadCredit m => Int -> q a m -> m (Maybe a)
@@ -28,15 +28,13 @@ class RandomAccess q where
 class RandomAccess q => BoundedRandomAccess q where
   qcost :: Size -> RandomAccessOp a -> Credit
 
-data RA q a m = E | RA Size (q (PrettyCell a) m)
+data RA q a m = RA (q (PrettyCell a) m)
 
 instance (MemoryCell m (q (PrettyCell a) m)) => MemoryCell m (RA q a m) where
-  prettyCell E = pure $ mkMCell "" []
-  prettyCell (RA _ q) = prettyCell q
+  prettyCell (RA q) = prettyCell q
 
 instance (MemoryStructure (q (PrettyCell a))) => MemoryStructure (RA q a) where
-  prettyStructure E = pure $ mkMCell "" []
-  prettyStructure (RA _ q) = prettyStructure q
+  prettyStructure (RA q) = prettyStructure q
 
 idx :: Int -> Size -> Int
 idx i sz = if sz <= 0 then 0 else abs (i `mod` fromIntegral sz)
@@ -46,19 +44,17 @@ norm sz (Lookup i) = Lookup (idx i sz)
 norm sz (Update i a) = Update (idx i sz) a
 norm _ op = op
 
-act :: (MonadCredit m, RandomAccess q) => Size -> q (PrettyCell a) m -> RandomAccessOp a -> m (RA q a m)
-act sz q (Cons x) = RA (sz + 1) <$> cons (PrettyCell x) q
-act sz q Uncons = do
-  m <- uncons q
-  case m of
-    Nothing -> pure E
-    Just (_, q') -> pure $ RA (max 0 (sz - 1)) q'
-act sz q (Lookup i) = do
-  _ <- lookup i q
-  pure $ RA sz q
-act sz q (Update i a) = RA sz <$> update i (PrettyCell a) q
-
 instance (Arbitrary a, BoundedRandomAccess q, Show a) => DataStructure (RA q a) (RandomAccessOp a) where
-  create = E
-  action E op = (qcost @q 0 (norm 0 op), empty >>= flip (act 0) (norm 0 op))
-  action (RA sz q) op = (qcost @q sz (norm sz op), act sz q (norm sz op))
+  charge sz op = qcost @q sz (norm sz op)
+  create = RA <$> empty
+  action sz (RA q) (Cons x) = (sz + 1,) <$> RA <$> cons (PrettyCell x) q
+  action sz (RA q) Uncons = do
+    m <- uncons q
+    m' <- case m of
+      Nothing -> empty
+      Just (_, q') -> pure q'
+    pure (max 0 (sz - 1), RA m')
+  action sz (RA q) (Lookup i) = do
+    _ <- lookup (idx i sz) q
+    pure $ (sz, RA q)
+  action sz (RA q) (Update i a) = (sz,) <$> RA <$> update (idx i sz) (PrettyCell a) q

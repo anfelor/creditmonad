@@ -16,11 +16,9 @@ data CatDeque a m
       (Q.BQueue (Thunk m (CLazyCon m) (CatDeque a m)) m) -- ^ tail
 
 data CLazyCon m a where
-  Pure :: a -> CLazyCon m a
   LinkAll :: Q.BQueue (Thunk m (CLazyCon m) (CatDeque a m)) m -> CLazyCon m (CatDeque a m)
 
 instance MonadInherit m => HasStep (CLazyCon m) m where
-  step (Pure xs) = pure xs
   step (LinkAll q) = linkAll q
 
 costSnoc :: Credit
@@ -49,7 +47,7 @@ concat' :: MonadInherit m => CatDeque a m -> CatDeque a m -> m (CatDeque a m)
 concat' E xs = pure xs
 concat' xs E = pure xs
 concat' xs ys = do
-  ys <- delay $ Pure ys
+  ys <- value ys
   link xs ys
 
 -- | Assign credits to the thunk and force it
@@ -59,14 +57,12 @@ dischargeThunk :: MonadInherit m => Thunk m (CLazyCon m) (CatDeque a m) -> m ()
 dischargeThunk s = do
   let assign = creditWith s (costSnoc + costUncons) >> force s >> pure ()
   lazymatch s (\_ -> assign) $ \case
-    Pure _ -> assign
     LinkAll q -> do
       q' <- Q.lazyqueue q
       case q' of
         [] -> assign
         t' : _ -> do
           lazymatch t' (\_ -> assign) $ \case
-            Pure _ -> assign
             LinkAll _ -> dischargeThunk t'
 
 findFirstThunk :: MonadInherit m => CatDeque a m -> m (Maybe (Thunk m (CLazyCon m) (CatDeque a m)))
@@ -79,7 +75,6 @@ seekFirstThunk :: MonadInherit m => [Thunk m (CLazyCon m) (CatDeque a m)] -> m (
 seekFirstThunk [] = pure Nothing
 seekFirstThunk (t : q) = do
   mt <- lazymatch t findFirstThunk $ \case
-    Pure q' -> findFirstThunk q'
     LinkAll _ -> pure $ Just t
   case mt of
     Nothing -> seekFirstThunk q
@@ -114,12 +109,9 @@ instance BoundedDeque CatDeque where
   qcost _ (Snoc _) = costSnoc
   qcost _ Uncons = 4 * costUncons + 3 * costSnoc
   qcost _ Unsnoc = 0
-  qcost _ Concat = 0
+  qcost _ Concat = costSnoc
 
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (CLazyCon m a) where
-  prettyCell (Pure x) = do
-    x' <- prettyCell x
-    pure $ mkMCell "Pure" [x']
   prettyCell (LinkAll q) = do
     q' <- prettyCell q
     pure $ mkMCell "LinkAll" [q']

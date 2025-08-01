@@ -66,6 +66,9 @@ instance Monad m => MonadLazy (CounterT s m) where
   delay a = do
     s <- liftST $ newSTRef (Left a)
     pure (Thunk s)
+  value b = do
+    s <- liftST $ newSTRef (Right b)
+    pure (Thunk s)
   force (Thunk t) = do
     t' <- liftST $ readSTRef t
     case t' of

@@ -2,12 +2,14 @@
 
 module Test.Credit
   (
-  -- * Common time-complexity functions
+  -- * Common Time-Complexity Functions
     Size, logstar, log2, linear
-  -- * Tree shapes for testing
-  , Strategy(..), genTree
-  -- * Testing data structures on trees of operations
-  , DataStructure(..), runTree, checkCredits, runTreeMemory, checkCreditsMemory
+  -- * Execution Traces for Testing
+  , Strategy(..), genExecutionTrace
+  -- * Running Data Structures on Execution Traces
+  , DataStructure(..), runTree, runTreeTrace
+  -- * Testing Data Structures on Execution Traces
+  , checkCredits, checkCreditsTrace
   ) where
 
 import Data.Either
@@ -70,11 +72,11 @@ instance Arbitrary a => Arbitrary (PrsTree a) where
 data Strategy = Path | Bloom | Pennant | Random
   deriving (Eq, Ord, Show)
 
-genTree :: Arbitrary op => Strategy -> Gen (Tree op)
-genTree Path = fromSeqTree <$> arbitrary
-genTree Bloom = fromBloomTree <$> arbitrary
-genTree Pennant = fromPennantTree <$> arbitrary
-genTree Random = fromPrsTree <$> arbitrary
+genExecutionTrace :: Arbitrary op => Strategy -> Gen (Tree op)
+genExecutionTrace Path = fromSeqTree <$> arbitrary
+genExecutionTrace Bloom = fromBloomTree <$> arbitrary
+genExecutionTrace Pennant = fromPennantTree <$> arbitrary
+genExecutionTrace Random = fromPrsTree <$> arbitrary
 
 newtype Size = Size Int
   deriving (Eq, Ord, Show)
@@ -102,27 +104,41 @@ linear :: Size -> Credit
 linear (Size n) = fromInteger $ toInteger n
 
 class (Arbitrary op, Show op) => DataStructure t op | t -> op where
-  create :: forall m. MonadInherit m => t m
-  action :: forall m. MonadInherit m => t m -> op -> (Credit, m (t m))
+  charge :: Size -> op -> Credit
+  -- ^ Given a size and an operation, return the cost of the operation.
+  -- This function can not inspect the internal state of the data structure.
+  create :: forall m. MonadLazy m => m (t m)
+  -- ^ Create a new instance of the data structure.
+  -- We allow the computation to be lazy, since lazy data structures
+  -- often contain thunks even if they contain no elements.
+  -- The empty data structure is assumed to have size zero.
+  action :: forall m. MonadInherit m => Size -> t m -> op -> m (Size, t m)
+  -- ^ Given a data structure, its size, and an operation,
+  -- return the updated size and data structure.
+  -- We allow the size to depend on the internal state of the data structure,
+  -- since some operations, like insertions into a binary search tree, might
+  -- return different sizes depending on whether a new element is already present.
 
+-- | Evaluate an execution trace of operations on the given data structure
+-- using the credit monad. Returns either an error or unit if the evaluation succeeded.
 runTree :: forall t op. DataStructure t op => Tree op -> Either Error ()
-runTree tree = runCreditM 0 (go (create @t) tree)
+runTree tree = runCreditM 0 (create @t >>= flip (go 0) tree)
   where
-    go :: forall s t op. DataStructure t op => t (CreditM s) -> Tree op -> CreditM s ()
-    go a (Node op ts) = do
-      let (cr, f) = action a op
+    go :: forall s t op. DataStructure t op => Size -> t (CreditM s) -> Tree op -> CreditM s ()
+    go sz a (Node op ts) = do
+      let cr = charge @t sz op
       resetCurrentThunk cr
-      a' <- f
-      mapM_ (go a') ts
+      (sz, a) <- action sz a op
+      mapM_ (go sz a) ts
 
 isPersistent :: Tree a -> Bool
 isPersistent (Node _ ts) = length ts > 1 || any isPersistent ts
 
--- | Evaluate the queue operations using the given strategy on the given queue
--- Reports only if evaluation succeeded.
+-- | Test the given data structure in the credit monad using the given strategy.
+-- This property only reports if evaluation succeeded or not.
 checkCredits :: forall t op. DataStructure t op => Strategy -> Property
 checkCredits strat =
-  forAllShrink (genTree strat) shrink $ \t ->
+  forAllShrink (genExecutionTrace strat) shrink $ \t ->
     classify (isPersistent t) "persistent" $
       isRight $ runTree @t t
 
@@ -141,6 +157,10 @@ extract :: RoseZipper a -> Tree a
 extract (Branch x ls Root) = Node x (reverse ls)
 extract z = extract (up z)
 
+-- | If each node has only a single child, flatten the tree
+-- by making all elements children of the root.
+-- This improves the readability of the tree when printed.
+-- Otherwise, return the original tree.
 flattenTree :: Tree a -> Tree a
 flattenTree t = case go t of
   Just (x:xs) -> Node x (map (\x -> Node x []) xs)
@@ -156,25 +176,29 @@ showState (Right (), t) = drawTree $ flattenTree $ extract t
 
 type M s = CreditT s (State (RoseZipper String))
 
-runTreeMemory :: forall t op. (MemoryStructure t, DataStructure t op) => Tree op -> String
-runTreeMemory tree = showState $ runState (runCreditT 0 (go (create @t) tree)) Root
+-- | Evaluate an execution trace of operations on the given data structure
+-- using the credit monad. Returns a pretty-printed string of the execution trace
+-- annotated with the internal state of the data structure at each step.
+runTreeTrace :: forall t op. (MemoryStructure t, DataStructure t op) => Tree op -> String
+runTreeTrace tree = showState $ runState (runCreditT 0 (create @t >>= flip (go 0) tree)) Root
   where
-    go :: forall s t op. (MemoryStructure t, DataStructure t op) => t (M s) -> Tree op -> M s ()
-    go a (Node op ts) = do
-      let (cr, f) = action a op
+    go :: forall s t op. (MemoryStructure t, DataStructure t op) => Size -> t (M s) -> Tree op -> M s ()
+    go sz a (Node op ts) = do
+      let cr = charge @t sz op
       resetCurrentThunk cr
       lift $ modify' (Branch (show op ++ ": ") []) 
-      a' <- f
-      mem <- prettyStructure a'
+      (sz, a) <- action sz a op
+      mem <- prettyStructure a
       let s = renderString $ layoutSmart (defaultLayoutOptions { layoutPageWidth = Unbounded }) $ nest 2 $ pretty $ mem
       lift $ modify' (extend s)
-      mapM_ (go a') ts
+      mapM_ (go sz a) ts
       lift $ modify' up
 
--- | Evaluate the queue operations using the given strategy on the given queue
--- Reports only if evaluation succeeded.
-checkCreditsMemory :: forall t op. (MemoryStructure t, DataStructure t op) => Strategy -> Property
-checkCreditsMemory strat =
-  forAllShrinkShow (genTree strat) shrink (\t -> runTreeMemory @t t) $ \t ->
+-- | Test the given data structure in the credit monad using the given strategy.
+-- If evaluation fails, this property prints the execution trace
+-- annotated with the internal state of the data structure at each step.
+checkCreditsTrace :: forall t op. (MemoryStructure t, DataStructure t op) => Strategy -> Property
+checkCreditsTrace strat =
+  forAllShrinkShow (genExecutionTrace strat) shrink (\t -> runTreeTrace @t t) $ \t ->
     classify (isPersistent t) "persistent" $
       isRight $ runTree @t t

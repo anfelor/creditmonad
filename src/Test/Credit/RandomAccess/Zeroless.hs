@@ -4,7 +4,7 @@ module Test.Credit.RandomAccess.Zeroless where
 
 import Prelude hiding (lookup)
 import Prettyprinter (Pretty)
-import Control.Monad.Credit hiding (exec)
+import Control.Monad.Credit
 import Test.Credit
 import Test.Credit.RandomAccess.Base
 

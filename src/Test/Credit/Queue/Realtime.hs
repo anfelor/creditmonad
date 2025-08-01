@@ -1,15 +1,11 @@
-module Test.Credit.Queue.Realtime where
+{-# LANGUAGE LambdaCase #-}
 
-import Prelude hiding (lookup, reverse)
+module Test.Credit.Queue.Realtime where
 
 import Prettyprinter (Pretty)
 import Control.Monad.Credit
 import Test.Credit.Queue.Base
 import Test.Credit.Queue.Streams
-
--- | Delay a computation, but do not consume any credits
-indirect :: MonadInherit m => SLazyCon m (Stream m a) -> m (Stream m a)
-indirect t = delay t >>= pure . SIndirect
 
 data RQueue a m = RQueue
   { front :: Stream m a
@@ -18,20 +14,31 @@ data RQueue a m = RQueue
   }
 
 rqueue :: MonadInherit m => RQueue a m -> m (RQueue a m)
-rqueue (RQueue f r s) = credit s >> credit s >> smatch s
-  (\x s -> pure $ RQueue f r s)
-  (do
-    r' <- indirect (SReverse r SNil)
-    f' <- indirect (SAppend f r')
-    credit r' >> evalone r'
-    pure $ RQueue f' SNil f')
+rqueue (RQueue f r s) = do
+  s `creditWith` 2
+  force s >>= \case
+    SCons _ s -> pure $ RQueue f r s
+    SNil -> do
+      r' <- sreverse r =<< nil
+      f' <- sappend f r'
+      r' `creditWith` 1
+      n <- nil
+      pure $ RQueue f' n f'
 
 instance Queue RQueue where
-  empty = pure $ RQueue SNil SNil SNil
-  snoc (RQueue f r s) x = rqueue (RQueue f (SCons x r) s)
-  uncons (RQueue f r s) = credit f >> credit f >> smatch f
-    (\x f -> rqueue (RQueue f r s) >>= \q -> pure $ Just (x, q))
-    (pure Nothing)
+  empty = do
+    n <- nil
+    pure $ RQueue n n n
+  snoc (RQueue f r s) x = do
+    r' <- cons x r
+    rqueue $ RQueue f r' s
+  uncons (RQueue f r s) = do
+    f `creditWith` 2
+    force f >>= \case
+      SCons x f -> do
+        q <- rqueue $ RQueue f r s
+        pure $ Just (x, q)
+      SNil -> pure Nothing
 
 instance BoundedQueue RQueue where
   qcost _ (Snoc _) = 4

@@ -184,7 +184,7 @@ instance BoundedDeque SimpleCat where
   qcost n (Snoc x) = qcost @(D.BDeque) n (Snoc x)
   qcost n Uncons = 1 + qcost @(D.BDeque) n Uncons + 2 * cost
   qcost n Unsnoc = 1 + qcost @(D.BDeque) n Unsnoc + 2 * cost
-  qcost n Concat = (1 + 6 * cost) * log2 n
+  qcost n Concat = cost + (1 + 6 * cost) * log2 n
 
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (SimpleCat a m) where
   prettyCell (Shallow d) = do

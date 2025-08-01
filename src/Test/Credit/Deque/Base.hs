@@ -20,7 +20,7 @@ instance Arbitrary a => Arbitrary (DequeOp a) where
     ]
 
 class Deque q where
-  empty :: MonadInherit m => m (q a m)
+  empty :: MonadLazy m => m (q a m)
   cons :: MonadInherit m => a -> q a m -> m (q a m)
   snoc :: MonadInherit m => q a m -> a -> m (q a m)
   uncons :: MonadInherit m => q a m -> m (Maybe (a, q a m))
@@ -30,39 +30,32 @@ class Deque q where
 class Deque q => BoundedDeque q where
   qcost :: Size -> DequeOp a -> Credit
 
-data D q a m = E | D Size (q (PrettyCell a) m)
+data D q a m = D (q (PrettyCell a) m)
 
 instance (MemoryCell m (q (PrettyCell a) m)) => MemoryCell m (D q a m) where
-  prettyCell E = pure $ mkMCell "" []
-  prettyCell (D _ q) = prettyCell q
+  prettyCell (D q) = prettyCell q
 
 instance (MemoryStructure (q (PrettyCell a))) => MemoryStructure (D q a) where
-  prettyStructure E = pure $ mkMCell "" []
-  prettyStructure (D _ q) = prettyStructure q
+  prettyStructure (D q) = prettyStructure q
 
-act :: (MonadInherit m, Deque q) => Size -> q (PrettyCell a) m -> DequeOp a -> m (D q a m)
-act sz q (Cons x) = D (sz + 1) <$> cons (PrettyCell x) q
-act sz q (Snoc x) = D (sz + 1) <$> snoc q (PrettyCell x)
-act sz q Uncons = do
-  m <- uncons q
-  case m of
-    Nothing -> pure E
-    Just (_, q') -> pure $ D (max 0 (sz - 1)) q'
-act sz q Unsnoc = do
-  m <- unsnoc q
-  case m of
-    Nothing -> pure E
-    Just (q', _) -> pure $ D (max 0 (sz - 1)) q'
-act sz q Concat = pure $ D sz q
 
 instance (Arbitrary a, BoundedDeque q, Show a) => DataStructure (D q a) (DequeOp a) where
-  create = E
-  action E op = (qcost @q 0 op, empty >>= flip (act 0) op)
-  action (D sz q) op = (qcost @q sz op, act sz q op)
-
-size :: D q a m -> Size
-size E = 0
-size (D sz _) = sz
+  charge _ Concat = 0
+  charge sz op = qcost @q sz op
+  create = D <$> empty
+  action sz (D q) (Cons x) = (sz + 1,) <$> D <$> cons (PrettyCell x) q
+  action sz (D q) (Snoc x) = (sz + 1,) <$> D <$> snoc q (PrettyCell x)
+  action sz (D q) Uncons = do
+    m <- uncons q
+    case m of
+      Nothing -> (sz,) <$> D <$> empty
+      Just (_, q') -> pure (sz - 1, D q')
+  action sz (D q) Unsnoc = do
+    m <- unsnoc q
+    case m of
+      Nothing -> (sz,) <$> D <$> empty
+      Just (q', _) -> pure (sz - 1, D q')
+  action sz (D q) Concat = pure $ (sz, D q) -- no op
 
 data BD q a m = BD (D q a m) (D q a m)
 
@@ -78,33 +71,25 @@ instance (MemoryStructure (q (PrettyCell a))) => MemoryStructure (BD q a) where
     q2' <- prettyStructure q2
     pure $ mkMCell "Concat" [q1', q2']
 
-act1 :: (MonadInherit m, Deque q) => DequeOp a -> BD q a m -> m (BD q a m)
-act1 op (BD q1 q2) = do
-  q1' <- case q1 of
-    E -> empty
-    D _ q -> pure q
-  q1'' <- act (size q1) q1' op 
-  pure $ BD q1'' q2
-
-act2 :: (MonadInherit m, Deque q) => DequeOp a -> BD q a m -> m (BD q a m)
-act2 op (BD q1 q2) = do
-  let sz = size q2
-  q2' <- case q2 of
-    E -> empty
-    D _ q -> pure q
-  q2'' <- act (size q2) q2' op 
-  pure $ BD q1 q2''
-
-concatenate :: (MonadInherit m, Deque q) => D q a m -> D q a m -> m (D q a m)
-concatenate E E = pure E
-concatenate (D sz1 q1) E = pure $ D sz1 q1
-concatenate E (D sz2 q2) = pure $ D sz2 q2
-concatenate (D sz1 q1) (D sz2 q2) = D (sz1 + sz2) <$> concat q1 q2
-
 instance (Arbitrary a, BoundedDeque q, Show a) => DataStructure (BD q a) (DequeOp a) where
-  create = BD E E
-  action (BD q1 q2) (Cons x) = (qcost @q (size q1) (Cons x), act1 (Cons x) (BD q1 q2))
-  action (BD q1 q2) (Snoc x) = (qcost @q (size q2) (Snoc x), act2 (Snoc x) (BD q1 q2))
-  action (BD q1 q2) Uncons = (qcost @q (size q1) Uncons, act1 Uncons (BD q1 q2))
-  action (BD q1 q2) Unsnoc = (qcost @q (size q2) Unsnoc, act2 Unsnoc (BD q1 q2))
-  action (BD q1 q2) Concat = (qcost @q (size q1 + size q2) Concat, BD E <$> concatenate q1 q2)
+  charge = qcost @q
+  create = do
+    q1 <- empty
+    q2 <- empty
+    pure $ BD (D q1) (D q2)
+  action sz (BD q1 q2) (Cons x) = do
+    (sz, q1) <- action sz q1 (Cons x)
+    pure (sz, BD q1 q2)
+  action sz (BD q1 q2) (Snoc x) = do
+    (sz, q2) <- action sz q2 (Snoc x)
+    pure (sz, BD q1 q2)
+  action sz (BD q1 q2) Uncons = do
+    (sz, q1) <- action sz q1 Uncons
+    pure (sz, BD q1 q2)
+  action sz (BD q1 q2) Unsnoc = do
+    (sz, q2) <- action sz q2 Unsnoc
+    pure (sz, BD q1 q2)
+  action sz (BD (D q1) (D q2)) Concat = do
+    e <- empty
+    q <- concat q1 q2
+    pure (sz, BD (D e) (D q))

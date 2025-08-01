@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase, GADTs #-}
+
 module Test.Credit.Queue.Bankers where
 
 import Prettyprinter (Pretty)
@@ -13,29 +15,52 @@ data BQueue a m = BQueue
   , rlen :: !Int
   }
 
-bqueue :: MonadInherit m => BQueue a m -> m (BQueue a m)
-bqueue (BQueue f fl r rl) = do
-  ifIndirect f (`hasAtLeast` fromIntegral rl)
+bqueue :: MonadInherit m => m (Stream m a) -> Int -> m (Stream m a) -> Int -> m (BQueue a m)
+bqueue f fl r rl = (\f r -> BQueue f fl r rl) <$> f <*> r
+
+allEvaluated :: MonadInherit m => StreamCell m a -> m ()
+allEvaluated SNil = pure ()
+allEvaluated (SCons _ xs) = isEvaluated xs
+
+isEvaluated :: MonadInherit m => Stream m a -> m ()
+isEvaluated s = lazymatch s allEvaluated (error "Stream should be pure")
+
+invariant :: MonadInherit m => Stream m a -> Int -> m ()
+invariant front rlen = 
+  lazymatch front (\_ -> pure ()) $ \case
+    SAppend xs ys -> do
+      lxs <- slength xs
+      lys <- slength ys
+      front `hasAtLeast` (fromIntegral $ min rlen (2 * lxs))
+      invariant xs lxs
+      ys `hasAtLeast` (fromIntegral $ lys - lxs)
+    SReverse xs ys -> do
+      isEvaluated xs
+      isEvaluated ys
+
+restructure :: MonadInherit m => BQueue a m -> m (BQueue a m)
+restructure (BQueue f fl r rl) = do
+  invariant f $ fromIntegral rl
   if fl >= rl 
-    then pure $ BQueue f fl r rl
+    then do
+      pure $ BQueue f fl r rl
     else do
-      r' <- delay (SReverse r SNil)
+      r' <- sreverse r =<< nil
       r' `creditWith` 1
-      f' <- delay (SAppend f (SIndirect r'))
-      pure $ BQueue (SIndirect f') (fl + rl) SNil 0
+      bqueue (sappend f r') (fl + rl) nil 0
 
 instance Queue BQueue where
-  empty = pure $ BQueue SNil 0 SNil 0
+  empty = (\f r -> BQueue f 0 r 0) <$> nil <*> nil
   snoc (BQueue f fl r rl) x = do
-    credit f
-    bqueue (BQueue f fl (SCons x r) (rl + 1))
+    f `creditWith` 1
+    restructure =<< bqueue (pure f) fl (cons x r) (rl + 1)
   uncons (BQueue f fl r rl) = do
-    credit f >> credit f
-    smatch f
-      (\x f -> do
-        q <- bqueue (BQueue f (fl - 1) r rl)
-        pure $ Just (x, q))
-      (pure Nothing)
+    f `creditWith` 2
+    force f >>= \case
+      SCons x f -> do
+        q <- restructure $ BQueue f (fl - 1) r rl
+        pure $ Just (x, q)
+      SNil -> pure Nothing
 
 isEmpty :: BQueue a m -> Bool
 isEmpty (BQueue _ flen _ rlen) = flen == 0 && rlen == 0

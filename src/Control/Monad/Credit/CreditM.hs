@@ -172,6 +172,11 @@ instance Monad m => MonadLazy (CreditT s m) where
     withCredits $ pure . open i
     s <- liftST $ newSTRef (Left a)
     pure (Thunk i s)
+  value b = do
+    i <- getNext
+    withCredits $ pure . open i
+    s <- liftST $ newSTRef (Right b)
+    pure (Thunk i s)
   force (Thunk i t) = do
     t' <- liftST $ readSTRef t
     case t' of
@@ -265,7 +270,7 @@ instance Pretty Error where
   pretty (OutOfCredits i) = "Out of credits for" <+> pretty i
   pretty (InvalidAccount i) = "Invalid account for" <+> pretty i
   pretty (InvalidTick i) = "Invalid tick for" <+> pretty i
-  pretty (ClosedCurrent (Cell 0)) = "Closed maint thread account. Never invoke creditAllTo on main thread."
+  pretty (ClosedCurrent (Cell 0)) = "Closed main thread account. Never invoke creditAllTo on main thread."
   pretty (ClosedCurrent i) = "Closed current account" <+> pretty i
   pretty (UserError e) = "User error:" <+> pretty e
   pretty (AssertionFailed i n m) = pretty i <+> "should have" <+> pretty n <+> "credits but only has" <+> pretty m

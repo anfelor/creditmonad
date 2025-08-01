@@ -4,9 +4,6 @@
 module Intro where
 
 import Control.Monad
-import System.Environment (getArgs)
-import Test.QuickCheck
-
 import Control.Monad.Credit
 
 data Batched a = Batched [a] [a]
