@@ -32,9 +32,9 @@ instance (MemoryStructure (q (PrettyCell a))) => MemoryStructure (S q a) where
   prettyStructure (S q) = prettyStructure q
 
 instance (Arbitrary a, Ord a, BoundedSortable q, Show a) => DataStructure (S q a) (SortableOp a) where
-  charge = scost @q
+  cost = scost @q
   create = S <$> empty
-  action sz (S q) (Add x) = (sz + 1,) <$> S <$> add (PrettyCell x) q
-  action sz (S q) Sort = do
+  perform sz (S q) (Add x) = (sz + 1,) <$> S <$> add (PrettyCell x) q
+  perform sz (S q) Sort = do
     _ <- sort q
     pure (sz, S q)

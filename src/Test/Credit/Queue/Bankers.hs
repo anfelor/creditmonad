@@ -2,21 +2,19 @@
 
 module Test.Credit.Queue.Bankers where
 
-import Prettyprinter (Pretty)
 import Control.Monad.Credit
+import Data.Maybe (fromMaybe)
+import Prettyprinter (Pretty)
 import Test.Credit
 import Test.Credit.Queue.Base
 import Test.Credit.Queue.Streams
 
 data BQueue a m = BQueue
-  { front :: Stream m a
-  , flen :: !Int
-  , rear :: Stream m a
+  { flen :: !Int
   , rlen :: !Int
+  , front :: Stream m a
+  , rear  :: Stream m a
   }
-
-bqueue :: MonadInherit m => m (Stream m a) -> Int -> m (Stream m a) -> Int -> m (BQueue a m)
-bqueue f fl r rl = (\f r -> BQueue f fl r rl) <$> f <*> r
 
 allEvaluated :: MonadInherit m => StreamCell m a -> m ()
 allEvaluated SNil = pure ()
@@ -25,48 +23,54 @@ allEvaluated (SCons _ xs) = isEvaluated xs
 isEvaluated :: MonadInherit m => Stream m a -> m ()
 isEvaluated s = lazymatch s allEvaluated (error "Stream should be pure")
 
-invariant :: MonadInherit m => Stream m a -> Int -> m ()
+allInvariant :: MonadInherit m => Maybe Int -> StreamCell m a -> m ()
+allInvariant _ SNil = pure ()
+allInvariant rlen (SCons x xs) = invariant xs (fmap (subtract 2) rlen)
+
+invariant :: MonadInherit m => Stream m a -> Maybe Int -> m ()
 invariant front rlen = 
-  lazymatch front (\_ -> pure ()) $ \case
+  lazymatch front (allInvariant rlen) $ \case
     SAppend xs ys -> do
       lxs <- slength xs
       lys <- slength ys
-      front `hasAtLeast` (fromIntegral $ min rlen (2 * lxs))
-      invariant xs lxs
+      front `hasAtLeast` (fromIntegral $ fromMaybe (2 * lxs) rlen)
+      invariant xs Nothing
       ys `hasAtLeast` (fromIntegral $ lys - lxs)
     SReverse xs ys -> do
+      lxs <- slength xs
+      front `hasAtLeast` (fromIntegral lxs)
       isEvaluated xs
       isEvaluated ys
 
-restructure :: MonadInherit m => BQueue a m -> m (BQueue a m)
-restructure (BQueue f fl r rl) = do
-  invariant f $ fromIntegral rl
+bqueue :: MonadInherit m => Int -> Int -> Stream m a -> Stream m a -> m (BQueue a m)
+bqueue fl rl f r = do
+  isEvaluated r
+  invariant f (Just rl)
   if fl >= rl 
-    then do
-      pure $ BQueue f fl r rl
+    then pure $ BQueue fl rl f r
     else do
-      r' <- sreverse r =<< nil
+      r' <- delay . SReverse r =<< nil
       r' `creditWith` 1
-      bqueue (sappend f r') (fl + rl) nil 0
+      BQueue (fl + rl) 0 <$> (delay $ SAppend f r') <*> nil
 
 instance Queue BQueue where
-  empty = (\f r -> BQueue f 0 r 0) <$> nil <*> nil
-  snoc (BQueue f fl r rl) x = do
+  empty = BQueue 0 0 <$> nil <*> nil
+  snoc (BQueue fl rl f r) x = do
     f `creditWith` 1
-    restructure =<< bqueue (pure f) fl (cons x r) (rl + 1)
-  uncons (BQueue f fl r rl) = do
+    bqueue fl (rl + 1) f =<< cons x r
+  uncons (BQueue fl rl f r) = do
     f `creditWith` 2
     force f >>= \case
-      SCons x f -> do
-        q <- restructure $ BQueue f (fl - 1) r rl
+      SCons x f' -> do
+        q <- bqueue (fl - 1) rl f' r
         pure $ Just (x, q)
       SNil -> pure Nothing
 
 isEmpty :: BQueue a m -> Bool
-isEmpty (BQueue _ flen _ rlen) = flen == 0 && rlen == 0
+isEmpty (BQueue flen rlen _ _) = flen == 0 && rlen == 0
 
 lazyqueue :: MonadInherit m => BQueue a m -> m [a]
-lazyqueue (BQueue f fl r rl) = do
+lazyqueue (BQueue fl rl f r) = do
   f' <- toList f
   r' <- toList r
   pure $ f' ++ reverse r'
@@ -76,12 +80,12 @@ instance BoundedQueue BQueue where
   qcost _ Uncons = 4
 
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (BQueue a m) where
-  prettyCell (BQueue f fl r rl) = do
-    f' <- prettyCell f
+  prettyCell (BQueue fl rl f r) = do
     fl' <- prettyCell fl
-    r' <- prettyCell r
     rl' <- prettyCell rl
-    pure $ mkMCell "Queue" [f', fl', r', rl']
+    f' <- prettyCell f
+    r' <- prettyCell r
+    pure $ mkMCell "Queue" [fl', rl', f', r']
 
 instance Pretty a => MemoryStructure (BQueue (PrettyCell a)) where
   prettyStructure = prettyCell

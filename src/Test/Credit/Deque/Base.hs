@@ -40,22 +40,22 @@ instance (MemoryStructure (q (PrettyCell a))) => MemoryStructure (D q a) where
 
 
 instance (Arbitrary a, BoundedDeque q, Show a) => DataStructure (D q a) (DequeOp a) where
-  charge _ Concat = 0
-  charge sz op = qcost @q sz op
+  cost _ Concat = 0
+  cost sz op = qcost @q sz op
   create = D <$> empty
-  action sz (D q) (Cons x) = (sz + 1,) <$> D <$> cons (PrettyCell x) q
-  action sz (D q) (Snoc x) = (sz + 1,) <$> D <$> snoc q (PrettyCell x)
-  action sz (D q) Uncons = do
+  perform sz (D q) (Cons x) = (sz + 1,) <$> D <$> cons (PrettyCell x) q
+  perform sz (D q) (Snoc x) = (sz + 1,) <$> D <$> snoc q (PrettyCell x)
+  perform sz (D q) Uncons = do
     m <- uncons q
     case m of
       Nothing -> (sz,) <$> D <$> empty
       Just (_, q') -> pure (sz - 1, D q')
-  action sz (D q) Unsnoc = do
+  perform sz (D q) Unsnoc = do
     m <- unsnoc q
     case m of
       Nothing -> (sz,) <$> D <$> empty
       Just (q', _) -> pure (sz - 1, D q')
-  action sz (D q) Concat = pure $ (sz, D q) -- no op
+  perform sz (D q) Concat = pure $ (sz, D q) -- no op
 
 data BD q a m = BD (D q a m) (D q a m)
 
@@ -72,24 +72,24 @@ instance (MemoryStructure (q (PrettyCell a))) => MemoryStructure (BD q a) where
     pure $ mkMCell "Concat" [q1', q2']
 
 instance (Arbitrary a, BoundedDeque q, Show a) => DataStructure (BD q a) (DequeOp a) where
-  charge = qcost @q
+  cost = qcost @q
   create = do
     q1 <- empty
     q2 <- empty
     pure $ BD (D q1) (D q2)
-  action sz (BD q1 q2) (Cons x) = do
-    (sz, q1) <- action sz q1 (Cons x)
+  perform sz (BD q1 q2) (Cons x) = do
+    (sz, q1) <- perform sz q1 (Cons x)
     pure (sz, BD q1 q2)
-  action sz (BD q1 q2) (Snoc x) = do
-    (sz, q2) <- action sz q2 (Snoc x)
+  perform sz (BD q1 q2) (Snoc x) = do
+    (sz, q2) <- perform sz q2 (Snoc x)
     pure (sz, BD q1 q2)
-  action sz (BD q1 q2) Uncons = do
-    (sz, q1) <- action sz q1 Uncons
+  perform sz (BD q1 q2) Uncons = do
+    (sz, q1) <- perform sz q1 Uncons
     pure (sz, BD q1 q2)
-  action sz (BD q1 q2) Unsnoc = do
-    (sz, q2) <- action sz q2 Unsnoc
+  perform sz (BD q1 q2) Unsnoc = do
+    (sz, q2) <- perform sz q2 Unsnoc
     pure (sz, BD q1 q2)
-  action sz (BD (D q1) (D q2)) Concat = do
+  perform sz (BD (D q1) (D q2)) Concat = do
     e <- empty
     q <- concat q1 q2
     pure (sz, BD (D e) (D q))

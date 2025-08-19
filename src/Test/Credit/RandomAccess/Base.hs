@@ -45,16 +45,16 @@ norm sz (Update i a) = Update (idx i sz) a
 norm _ op = op
 
 instance (Arbitrary a, BoundedRandomAccess q, Show a) => DataStructure (RA q a) (RandomAccessOp a) where
-  charge sz op = qcost @q sz (norm sz op)
+  cost sz op = qcost @q sz (norm sz op)
   create = RA <$> empty
-  action sz (RA q) (Cons x) = (sz + 1,) <$> RA <$> cons (PrettyCell x) q
-  action sz (RA q) Uncons = do
+  perform sz (RA q) (Cons x) = (sz + 1,) <$> RA <$> cons (PrettyCell x) q
+  perform sz (RA q) Uncons = do
     m <- uncons q
     m' <- case m of
       Nothing -> empty
       Just (_, q') -> pure q'
     pure (max 0 (sz - 1), RA m')
-  action sz (RA q) (Lookup i) = do
+  perform sz (RA q) (Lookup i) = do
     _ <- lookup (idx i sz) q
     pure $ (sz, RA q)
-  action sz (RA q) (Update i a) = (sz,) <$> RA <$> update (idx i sz) (PrettyCell a) q
+  perform sz (RA q) (Update i a) = (sz,) <$> RA <$> update (idx i sz) (PrettyCell a) q

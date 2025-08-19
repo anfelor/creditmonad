@@ -4,7 +4,7 @@ import Prelude hiding (head, tail, concat)
 import Prettyprinter (Pretty)
 import Control.Monad
 import Control.Monad.Credit
-import Test.Credit
+import Test.Credit (log2)
 import Test.Credit.Deque.Base
 import qualified Test.Credit.Deque.Base as D
 import qualified Test.Credit.Deque.Bankers as D

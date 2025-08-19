@@ -34,12 +34,12 @@ instance (MemoryStructure (h (PrettyCell a))) => MemoryStructure (H h a) where
   prettyStructure (H h) = prettyStructure h
 
 instance (Arbitrary a, Ord a, BoundedHeap h, Show a) => DataStructure (H h a) (HeapOp a) where
-  charge sz Merge = 0
-  charge sz op = hcost @h sz op
+  cost sz Merge = 0
+  cost sz op = hcost @h sz op
   create = H <$> empty
-  action sz (H h) (Insert x) = (sz + 1,) <$> H <$> insert (PrettyCell x) h
-  action sz (H h) Merge = pure (sz, H h) -- no op
-  action sz (H h) SplitMin = do
+  perform sz (H h) (Insert x) = (sz + 1,) <$> H <$> insert (PrettyCell x) h
+  perform sz (H h) Merge = pure (sz, H h) -- no op
+  perform sz (H h) SplitMin = do
     m <- splitMin h
     case m of
       Nothing -> (sz,) <$> H <$> empty
@@ -60,18 +60,18 @@ instance (MemoryStructure (h (PrettyCell a))) => MemoryStructure (BH h a) where
     pure $ mkMCell "Merge" [h1', h2']
 
 instance (Arbitrary a, Ord a, BoundedHeap h, Show a) => DataStructure (BH h a) (HeapOp a) where
-  charge = hcost @h
+  cost = hcost @h
   create = do
     h1 <- empty
     h2 <- empty
     pure $ BH (H h1) (H h2)
-  action sz (BH h1 h2) (Insert a) = do
-    (sz, h1) <- action sz h1 (Insert a)
+  perform sz (BH h1 h2) (Insert a) = do
+    (sz, h1) <- perform sz h1 (Insert a)
     pure (sz, BH h1 h2)
-  action sz (BH h1 h2) SplitMin = do
-    (sz, h2) <- action sz h2 SplitMin
+  perform sz (BH h1 h2) SplitMin = do
+    (sz, h2) <- perform sz h2 SplitMin
     pure (sz, BH h1 h2)
-  action sz (BH (H h1) (H h2)) Merge = do
+  perform sz (BH (H h1) (H h2)) Merge = do
     h <- merge h1 h2
     e <- empty
     pure (sz, BH (H e) (H h))

@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs, LambdaCase #-}
 
-module Test.Credit.Queue.Streams (Stream, StreamCell(..), SLazyCon(..), cons, nil, sappend, sreverse, slength, toList, test) where
+module Test.Credit.Queue.Streams (Stream, StreamCell(..), SLazyCon(..), cons, nil, slength, toList, test) where
 
 import Control.Monad
 import Control.Monad.Credit
@@ -12,12 +12,12 @@ data StreamCell m a
   | SNil
 
 data SLazyCon m a where
-  SAppend :: Stream m a -> Stream m a -> SLazyCon m (StreamCell m a)
+  SAppend  :: Stream m a -> Stream m a -> SLazyCon m (StreamCell m a)
   SReverse :: Stream m a -> Stream m a -> SLazyCon m (StreamCell m a)
 
 instance MonadInherit m => HasStep (SLazyCon m) m where
-  step (SAppend xs ys) = force =<< sappend' xs ys 
-  step (SReverse xs ys) = force =<< sreverse' xs ys
+  step (SAppend  xs ys) = force =<< sappend  xs ys 
+  step (SReverse xs ys) = force =<< sreverse xs ys
 
 cons :: MonadLazy m => a -> Stream m a -> m (Stream m a)
 cons x xs = value $ SCons x xs
@@ -25,30 +25,23 @@ cons x xs = value $ SCons x xs
 nil :: MonadLazy m => m (Stream m a)
 nil = value SNil
 
--- | delay a computation, consuming all credits
-taildelay :: MonadInherit m => SLazyCon m (StreamCell m a) -> m (Stream m a)
-taildelay t = do
-  x <- delay t
-  creditAllTo x
-  pure x
-
-sreverse :: MonadInherit m => Stream m a -> Stream m a -> m (Stream m a)
-sreverse xs ys = delay $ SReverse xs ys
-
-sreverse' :: MonadInherit m => Stream m a -> Stream m a -> m (Stream m a)
-sreverse' xs ys = tick >> force xs >>= \case
-  SCons x xs -> do
-    xys <- value $ SCons x ys
-    sreverse' xs xys
+sreverse :: MonadInherit m
+          => Stream m a -> Stream m a -> m (Stream m a)
+sreverse xs ys = tick >> force xs >>= \case
+  SCons x xs -> sreverse xs =<< cons x ys
   SNil -> pure ys
 
-sappend :: MonadInherit m => Stream m a -> Stream m a -> m (Stream m a)
-sappend xs ys = delay $ SAppend xs ys
-
-sappend' :: MonadInherit m => Stream m a -> Stream m a -> m (Stream m a)
-sappend' xs ys = tick >> creditWith ys 1 >> force xs >>= \case
-  SCons x xs -> value . SCons x =<< taildelay (SAppend xs ys)
-  SNil -> creditAllTo ys >> pure ys
+sappend :: MonadInherit m
+         => Stream m a -> Stream m a -> m (Stream m a)
+sappend xs ys = do
+  tick
+  ys `creditWith` 1
+  force xs >>= \case
+    SCons x xs' -> do
+      xs'ys <- delay $ SAppend xs' ys
+      creditAllTo xs'ys
+      cons x xs'ys
+    SNil -> creditAllTo ys >> pure ys
 
 cellToList :: MonadLazy m => StreamCell m a -> m [a]
 cellToList SNil = pure []

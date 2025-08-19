@@ -58,6 +58,20 @@ instance Measured a v => Measured (Digit a) v where
 instance Measured a v => Measured [a] v where
   measure = mconcat . map measure
 
+instance (Measured a v, Measured b v) => Measured (a, b) v where
+  measure (x, y) = measure x <> measure y
+
+instance (Measured a v, Measured b v, Measured c v) => Measured (a, b, c) v where
+  measure (x, y, z) = measure x <> measure y <> measure z
+
+instance (Measured a v, Measured b v) => Measured (Either a b) v where
+  measure (Left x) = measure x
+  measure (Right y) = measure y
+
+instance Measured a v => Measured (Maybe a) v where
+  measure Nothing = mempty
+  measure (Just a) = measure a
+
 instance Measured a v => Measured (FingerTree v a m) v where
   measure Empty = mempty
   measure (Single x) = measure x
@@ -79,9 +93,7 @@ triple x y z = Triple (measure x <> measure y <> measure z) x y z
 deep :: (MonadCredit m, Measured a v) => v -> Digit a -> Thunk m (FLazyCon m) (FingerTree v (Tuple v a) m) -> Digit a -> m (FingerTree v a m)
 deep v f m r = do
   let dang d = if isTwo d then 0 else 1
-  mIsPure <- lazymatch m (\_ -> pure True) (\_ -> pure False)
-  unless mIsPure $
-    m `hasAtLeast` (dang f + dang r)
+  m `hasAtLeast` (dang f + dang r)
   lazymatch m (\m -> when (v /= measure m) $ error "invalid measure") (\_ -> pure ())
   pure $ Deep v f m r
 
@@ -126,14 +138,15 @@ cons x q = do
       if isTwo u
         then q  `creditWith` 1
         else q' `creditWith` 1
-      deep (measure z <> measure w <> vq) (Two x y) q' u
+      deep (measure (z, w) <> vq) (Two x y) q' u
 
 head :: MonadCredit m => FingerTree v a m -> m a
 head Empty = fail "head: empty queue"
 head (Single x) = pure x
 head (Deep _ s _ _) = pure $ let (h:_) = toList s in h
 
-tail :: (MonadCredit m, Measured a v) => FingerTree v a m -> m (FingerTree v a m)
+tail :: (MonadCredit m, Measured a v)
+     => FingerTree v a m -> m (FingerTree v a m)
 tail q = do
   tick
   case q of
@@ -145,32 +158,45 @@ tail q = do
       q `creditWith` 1
       deep vq (One x) q u
     Deep _ (One _) q u -> do
-      when (isTwo u) $
-        q `creditWith` 1
+      when (isTwo u) $ q `creditWith` 1
       force q >>= (`deep0` u)
 
-deep0 :: (MonadCredit m, Measured a v) => FingerTree v (Tuple v a) m -> Digit a -> m (FingerTree v a m)
+deep0 :: (MonadCredit m, Measured a v)
+      => FingerTree v (Tuple v a) m -> Digit a
+      -> m (FingerTree v a m)
 deep0 Empty u = toTree $ toList u
-deep0 (Single (Pair _ x y)) u = do
-  deep' mempty (Two x y) empty u
-deep0 (Single (Triple _ x y z)) u = do
-  deep' (measure y <> measure z) (One x) (value (Single (pair y z))) u
-deep0 (Deep vq pr q sf) u = do
-  case chop0 pr of
-    Left (x, y, vpr') -> do
-      t <- delay $ FTail (Deep vq pr q sf)
-      unless (isTwo u) $ creditWith t 1
-      deep (vpr' <> vq <> measure sf) (Two x y) t u
-    Right (x, pr'') -> do
-      deep' (measure pr'' <> vq <> measure sf) (One x) (value (Deep vq pr'' q sf)) u
+deep0 q u = do
+  hd <- head q
+  case hd of
+    Pair _ x y -> do
+      t <- delay $ FTail q
+      unless (isTwo u) $ t `creditWith` 1
+      let v = measureTail q
+      deep v (Two x y) t u
+    Triple _ x _ _ -> do
+      let q' = map1 chop q
+      q'' <- value q'
+      deep (measure q') (One x) q'' u
+  where chop (Triple _ _ y z) = pair y z
 
-chop0 :: (Measured a v) => Digit (Tuple v a) -> Either (a, a, v) (a, Digit (Tuple v a))
-chop0 (One (Pair _ x y)) = Left (x, y, mempty)
-chop0 (Two (Pair _ x y) z) = Left (x, y, measure z)
-chop0 (Three (Pair _ x y) z w) = Left (x, y, measure z <> measure w)
-chop0 (One (Triple _ x y z)) = Right (x, One (pair y z))
-chop0 (Two (Triple _ x y z) w) = Right (x, Two (pair y z) w)
-chop0 (Three (Triple _ x y z) w u) = Right (x, Three (pair y z) w u)
+map1 :: (Measured a v) => (a -> a)
+     -> FingerTree v a m -> FingerTree v a m
+map1 f q = case q of
+  Empty -> Empty
+  Single x -> Single (f x)
+  Deep v (One x)       m sf -> Deep v (One (f x))       m sf
+  Deep v (Two x y)     m sf -> Deep v (Two (f x) y)     m sf
+  Deep v (Three x y z) m sf -> Deep v (Three (f x) y z) m sf
+
+measureTail :: Measured a v
+            => FingerTree v (Tuple v a) m -> v
+measureTail q = case q of
+  Empty -> mempty
+  Single _ -> mempty
+  Deep v pr _ sf -> case pr of
+    One _       ->                   v <> measure sf
+    Two _ y     -> measure y      <> v <> measure sf
+    Three _ y z -> measure (y, z) <> v <> measure sf
 
 uncons :: (MonadCredit m, Measured a v) => FingerTree v a m -> m (Maybe (a, FingerTree v a m))
 uncons q =
@@ -199,23 +225,26 @@ last Empty = fail "last: empty queue"
 last (Single x) = pure x
 last (Deep _ _ _ s) = pure $ let (h:_) = reverse $ toList s in h
 
-snoc :: (MonadCredit m, Measured a v) => FingerTree v a m -> a -> m (FingerTree v a m)
+snoc :: (MonadCredit m, Measured a v)
+     => FingerTree v a m -> a -> m (FingerTree v a m)
 snoc q w = do
   tick
   case q of
     Empty -> pure $ Single w
-    Single x -> deep' mempty (One x) empty (One w)
-    Deep vq u q (One x) ->
-      deep vq u q (Two x w)
-    Deep vq u q (Two x y) -> do
-      q `creditWith` 1
-      deep vq u q (Three x y w)
-    Deep vq u q (Three x y z) -> do
-      q' <- delay $ FSnoc q (pair x y)
-      if isTwo u
-        then q  `creditWith` 1
-        else q' `creditWith` 1
-      deep (vq <> measure x <> measure y) u q' (Two z w)
+    Single x -> do
+      em <- value Empty
+      deep mempty (One x) em (One w)
+    Deep v front middle (One x) ->
+      deep v front middle (Two x w)
+    Deep v front middle (Two x y) -> do
+      middle `creditWith` 1
+      deep v front middle (Three x y w)
+    Deep v front middle (Three x y z) -> do
+      t <- delay $ FSnoc middle (pair x y)
+      if isTwo front
+        then middle `creditWith` 1
+        else t      `creditWith` 1
+      deep (v <> measure (x, y)) front t (Two z w)
 
 init :: (MonadCredit m, Measured a v) => FingerTree v a m -> m (FingerTree v a m)
 init q = do
@@ -223,15 +252,15 @@ init q = do
   case q of
     Empty -> pure Empty
     Single _ -> pure Empty
-    Deep vq u q (Three x y _) -> do
-      deep vq u q (Two x y)
-    Deep vq u q (Two x _) -> do
+    Deep vq f q (Three x y _) -> do
+      deep vq f q (Two x y)
+    Deep vq f q (Two x _) -> do
       q `creditWith` 1
-      deep vq u q (One x)
-    Deep _ u q (One _) -> do
-      when (isTwo u) $
+      deep vq f q (One x)
+    Deep _ f q (One _) -> do
+      when (isTwo f) $
         q `creditWith` 1
-      deepN u =<< force q
+      deepN f =<< force q
 
 deepN :: (MonadCredit m, Measured a v) => Digit a -> FingerTree v (Tuple v a) m -> m (FingerTree v a m)
 deepN s Empty = toTree $ toList s

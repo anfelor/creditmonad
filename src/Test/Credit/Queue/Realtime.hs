@@ -19,8 +19,8 @@ rqueue (RQueue f r s) = do
   force s >>= \case
     SCons _ s -> pure $ RQueue f r s
     SNil -> do
-      r' <- sreverse r =<< nil
-      f' <- sappend f r'
+      r' <- delay . SReverse r =<< nil
+      f' <- delay $ SAppend f r'
       r' `creditWith` 1
       n <- nil
       pure $ RQueue f' n f'

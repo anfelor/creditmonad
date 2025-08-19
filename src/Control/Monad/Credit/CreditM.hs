@@ -3,10 +3,12 @@
 module Control.Monad.Credit.CreditM (CreditM, Error(..), runCreditM, CreditT, runCreditT, resetCurrentThunk) where
 
 import Prelude hiding (lookup)
+import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Identity
 import Control.Monad.State.Lazy
 import Control.Monad.ST.Trans
+import Data.Either
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.IntMap (IntMap)
@@ -217,8 +219,10 @@ instance Monad m => MonadCredit (CreditT s m) where
       me <- getMe
       withCredits $ subCredit me n . addCredit i n
     else pure ()
-  hasAtLeast (Thunk i _) n =
-    assertAtLeast i n
+  hasAtLeast (Thunk i t) n = do
+    t' <- liftST $ readSTRef t
+    when (isLeft t') $ do
+      assertAtLeast i n
 
 instance Monad m => MonadInherit (CreditT s m) where
   {-# SPECIALIZE instance MonadInherit (CreditT s Identity) #-}

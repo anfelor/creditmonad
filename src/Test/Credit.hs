@@ -104,15 +104,15 @@ linear :: Size -> Credit
 linear (Size n) = fromInteger $ toInteger n
 
 class (Arbitrary op, Show op) => DataStructure t op | t -> op where
-  charge :: Size -> op -> Credit
+  cost :: Size -> op -> Credit
   -- ^ Given a size and an operation, return the cost of the operation.
   -- This function can not inspect the internal state of the data structure.
-  create :: forall m. MonadLazy m => m (t m)
-  -- ^ Create a new instance of the data structure.
+  create :: MonadLazy m => m (t m)
+  -- ^ create a new instance of the data structure.
   -- We allow the computation to be lazy, since lazy data structures
   -- often contain thunks even if they contain no elements.
-  -- The empty data structure is assumed to have size zero.
-  action :: forall m. MonadInherit m => Size -> t m -> op -> m (Size, t m)
+  -- The create data structure is assumed to have size zero.
+  perform :: MonadInherit m => Size -> t m -> op -> m (Size, t m)
   -- ^ Given a data structure, its size, and an operation,
   -- return the updated size and data structure.
   -- We allow the size to depend on the internal state of the data structure,
@@ -126,9 +126,9 @@ runTree tree = runCreditM 0 (create @t >>= flip (go 0) tree)
   where
     go :: forall s t op. DataStructure t op => Size -> t (CreditM s) -> Tree op -> CreditM s ()
     go sz a (Node op ts) = do
-      let cr = charge @t sz op
+      let cr = cost @t sz op
       resetCurrentThunk cr
-      (sz, a) <- action sz a op
+      (sz, a) <- perform sz a op
       mapM_ (go sz a) ts
 
 isPersistent :: Tree a -> Bool
@@ -184,10 +184,10 @@ runTreeTrace tree = showState $ runState (runCreditT 0 (create @t >>= flip (go 0
   where
     go :: forall s t op. (MemoryStructure t, DataStructure t op) => Size -> t (M s) -> Tree op -> M s ()
     go sz a (Node op ts) = do
-      let cr = charge @t sz op
+      let cr = cost @t sz op
       resetCurrentThunk cr
       lift $ modify' (Branch (show op ++ ": ") []) 
-      (sz, a) <- action sz a op
+      (sz, a) <- perform sz a op
       mem <- prettyStructure a
       let s = renderString $ layoutSmart (defaultLayoutOptions { layoutPageWidth = Unbounded }) $ nest 2 $ pretty $ mem
       lift $ modify' (extend s)
