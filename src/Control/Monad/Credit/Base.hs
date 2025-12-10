@@ -7,7 +7,6 @@ module Control.Monad.Credit.Base
   , MemoryStructure(..), PrettyCell(..)
   ) where
 
-import Prettyprinter
 import Control.Monad
 import Control.Monad.State
 import Data.Char
@@ -15,6 +14,8 @@ import Data.Maybe
 import Data.Map (Map)
 import Data.Kind (Type)
 import qualified Data.Map as Map
+import Prettyprinter
+import Test.QuickCheck
 
 newtype Credit = Credit Int
   deriving (Eq, Ord, Show)
@@ -119,8 +120,14 @@ instance (MonadMemory m, MemoryCell m a, MemoryCell m (t a)) => MemoryCell m (Th
 newtype PrettyCell a = PrettyCell a
   deriving (Eq, Ord, Show)
 
+instance (Pretty a) => Pretty (PrettyCell a) where
+  pretty (PrettyCell a) = pretty a
+
 instance (Monad m, Pretty a) => MemoryCell m (PrettyCell a) where
   prettyCell (PrettyCell a) = pure $ mkMCell (show $ pretty a) []
+
+instance Arbitrary a => Arbitrary (PrettyCell a) where
+  arbitrary = PrettyCell <$> arbitrary
 
 class MemoryStructure t where
   prettyStructure :: MonadMemory m => t m -> m Memory
@@ -129,6 +136,7 @@ showCredit :: Credit -> String
 showCredit (Credit c) = map (chr . (\n -> n - 48 + 8320) . ord) $ show c
 
 annCredit :: Credit -> MTree -> MTree
+annCredit 0 m = m
 annCredit c (MCell d ms) = MCell (d ++ showCredit c) ms
 annCredit c m = m
 

@@ -53,11 +53,14 @@ library:
     - Test.Credit.Finger
     - Test.Credit.Heap.Base
     - Test.Credit.Heap.Binomial
+    - Test.Credit.Heap.ZBinomial
     - Test.Credit.Heap.LazyPairing
+    - Test.Credit.Heap.LazyPairingFIP
     - Test.Credit.Heap.Pairing
     - Test.Credit.Heap.Scheduled
     - Test.Credit.Queue.Bankers
     - Test.Credit.Queue.Base
+    - Test.Credit.Queue.Basic
     - Test.Credit.Queue.Batched
     - Test.Credit.Queue.Bootstrapped
     - Test.Credit.Queue.Implicit

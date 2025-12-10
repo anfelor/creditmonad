@@ -25,7 +25,9 @@ import Test.Credit.Deque.ImplicitCat
 import Test.Credit.Finger
 import Test.Credit.Heap.Base
 import Test.Credit.Heap.Binomial
+import Test.Credit.Heap.ZBinomial
 import Test.Credit.Heap.LazyPairing
+import Test.Credit.Heap.LazyPairingFIP
 import Test.Credit.Heap.Scheduled
 import Test.Credit.Sortable.Base
 import Test.Credit.Sortable.MergeSort
@@ -33,6 +35,8 @@ import Test.Credit.Sortable.Scheduled
 import Test.Credit.RandomAccess.Base
 import Test.Credit.RandomAccess.Binary
 import Test.Credit.RandomAccess.Zeroless
+
+import Talk
 
 run :: forall t op. (MemoryStructure t, DataStructure t op) => Args -> Strategy -> IO Result
 run args strat = quickCheckWithResult args $ checkCreditsTrace @t strat
@@ -64,6 +68,7 @@ benchmarks args =
       , ("Realtime Queue", run @(Q RQueue Alpha))
       , ("Bootstrapped Queue", run @(Q Bootstrapped Alpha))
       , ("Implicit Queue", run @(Q Implicit Alpha))
+      , ("Talk Queue", run @(Talk (PrettyCell Int)))
       , ("Bankers Deque", run @(D BDeque Alpha))
       , ("Realtime Deque", run @(D RDeque Alpha))
       , ("Catenable List", run @(D CatDeque Alpha))
@@ -73,10 +78,16 @@ benchmarks args =
       , ("Simple Catenable Deque (Concat)", run @(BD SimpleCat Alpha))
       , ("Implicit Catenable Deque (Concat)", run @(BD ImplicitCat Alpha))
       , ("Binomial Heap", run @(H Binomial Alpha))
+      , ("ZBinomial Heap", run @(H ZBinomial Alpha))
       , ("Lazy Pairing Heap", run @(H LazyPairing Alpha))
+      -- , ("Constant-time Lazy Pairing Heap", run @(H LazyPairingConstant Alpha))
+      , ("FIP Lazy Pairing Heap", run @(H LazyPairingFIP Alpha))
       , ("Scheduled Binomial Heap", run @(H Scheduled Alpha))
       , ("Binomial Heap (Merge)", run @(BH Binomial Alpha))
+      , ("ZBinomial Heap (Merge)", run @(BH ZBinomial Alpha))
       , ("Lazy Pairing Heap (Merge)", run @(BH LazyPairing Alpha))
+      -- , ("Constant-time Lazy Pairing Heap (Merge)", run @(BH LazyPairingConstant Alpha))
+      , ("FIP Lazy Pairing Heap (Merge)", run @(BH LazyPairingFIP Alpha))
       , ("Scheduled Binomial Heap (Merge)", run @(BH Scheduled Alpha))
       , ("Mergesort", run @(S MergeSort Alpha))
       , ("Scheduled Mergesort", run @(S SMergeSort Alpha))

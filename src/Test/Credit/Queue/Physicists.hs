@@ -16,12 +16,10 @@ rev [] acc = pure acc
 rev (x : xs) acc = tick >> rev xs (x : acc)
 
 data PLazyCon m a where
-  Empty :: PLazyCon m [a]
   AppRev :: [a] -> [a] -> PLazyCon m [a]
   Tail :: Thunk m (PLazyCon m) [a] -> PLazyCon m [a]
 
 instance MonadCredit m => HasStep (PLazyCon m) m where
-  step Empty = pure []
   step (AppRev xs ys) = app xs =<< rev ys []
   step (Tail xs) = tick >> drop 1 <$> force xs
 
@@ -40,26 +38,26 @@ check :: MonadCredit m => Physicists a m -> m (Physicists a m)
 check q@(Queue _ lenf front ghost lenr rear) =
   if lenr <= lenf
     then do
-      creditWith ghost 1
+      ghost `creditWith` 1
       checkw q
     else do
       working <- force front
       front' <- delay $ AppRev working rear
-      creditWith front' 1
+      front' `creditWith` 1
       checkw $ Queue working (lenf + lenr) front' front' 0 []
 
 instance Queue Physicists where
   empty = do
-    front <- delay Empty
+    front <- value []
     pure $ Queue [] 0 front front 0 []
   snoc (Queue working lenf front ghost lenr rear) x = tick >> do
-    creditWith ghost 1
+    ghost `creditWith` 1
     check (Queue working lenf front ghost (lenr + 1) (x : rear))
   uncons (Queue [] lenf front ghost lenr rear) = tick >> pure Nothing
   uncons (Queue (x : working) lenf front ghost lenr rear) = tick >> do
     front' <- delay $ Tail front
-    creditWith front' 1
-    creditWith ghost 1
+    front' `creditWith` 1
+    ghost  `creditWith` 1
     q' <- check $ Queue working (lenf - 1) front' ghost lenr rear
     pure $ Just (x, q')
 
@@ -68,7 +66,6 @@ instance BoundedQueue Physicists where
   qcost _ Uncons = 4
 
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (PLazyCon m a) where
-  prettyCell Empty = pure $ mkMCell "Empty" []
   prettyCell (AppRev xs ys) = do
     xs' <- prettyCell xs
     ys' <- prettyCell ys

@@ -1,6 +1,6 @@
 cabal-version: 2.2
 
--- This file has been generated from package.yaml by hpack version 0.38.1.
+-- This file has been generated from package.yaml by hpack version 0.37.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -49,11 +49,14 @@ library
       Test.Credit.Finger
       Test.Credit.Heap.Base
       Test.Credit.Heap.Binomial
+      Test.Credit.Heap.ZBinomial
       Test.Credit.Heap.LazyPairing
+      Test.Credit.Heap.LazyPairingFIP
       Test.Credit.Heap.Pairing
       Test.Credit.Heap.Scheduled
       Test.Credit.Queue.Bankers
       Test.Credit.Queue.Base
+      Test.Credit.Queue.Basic
       Test.Credit.Queue.Batched
       Test.Credit.Queue.Bootstrapped
       Test.Credit.Queue.Implicit
@@ -87,6 +90,7 @@ executable creditmonad
   other-modules:
       Implicit
       Intro
+      Talk
   hs-source-dirs:
       app
   ghc-options: -Wall -Wno-name-shadowing -Wno-unused-matches -O2 -fworker-wrapper-cbv -threaded -rtsopts

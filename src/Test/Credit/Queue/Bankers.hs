@@ -69,7 +69,10 @@ instance Queue BQueue where
 isEmpty :: BQueue a m -> Bool
 isEmpty (BQueue flen rlen _ _) = flen == 0 && rlen == 0
 
-lazyqueue :: MonadInherit m => BQueue a m -> m [a]
+size :: BQueue a m -> Int
+size (BQueue flen rlen _ _) = flen + rlen
+
+lazyqueue :: MonadLazy m => BQueue a m -> m [a]
 lazyqueue (BQueue fl rl f r) = do
   f' <- toList f
   r' <- toList r
