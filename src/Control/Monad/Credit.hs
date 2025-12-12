@@ -12,7 +12,7 @@ module Control.Monad.Credit
   , Control.Monad.Credit.CreditM.Error(..), Control.Monad.Credit.Base.Cell
   -- * Pretty-Printing Memory Cells
   , Control.Monad.Credit.Base.Memory, Control.Monad.Credit.Base.mkMCell, Control.Monad.Credit.Base.mkMList, linearize
-  , Control.Monad.Credit.Base.MemoryCell(..), Control.Monad.Credit.Base.MonadMemory(..), Control.Monad.Credit.Base.PrettyCell(..), Control.Monad.Credit.Base.MemoryStructure(..)
+  , Control.Monad.Credit.Base.MemoryCell(..), Control.Monad.Credit.Base.MonadMemory(..), Control.Monad.Credit.Base.ShowCell(..), Control.Monad.Credit.Base.PrettyCell(..), Control.Monad.Credit.Base.MemoryStructure(..)
   ) where
 
 import Control.Monad.Credit.Base

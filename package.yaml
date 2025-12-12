@@ -58,6 +58,8 @@ library:
     - Test.Credit.Heap.LazyPairingFIP
     - Test.Credit.Heap.Pairing
     - Test.Credit.Heap.Scheduled
+    - Test.Credit.Heap.Maxiphobic
+    - Test.Credit.Heap.RoundRobin
     - Test.Credit.Queue.Bankers
     - Test.Credit.Queue.Base
     - Test.Credit.Queue.Basic

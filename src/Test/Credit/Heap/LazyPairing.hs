@@ -28,7 +28,6 @@ size Empty = 0
 size (Heap sm _ a _) = 1 + sm + size a
 
 data PLazyCon m a where
-  Em :: PLazyCon m (LazyPairing a m)
   Link :: Ord a => Size -> LazyPairing a m -> LazyPairing a m -> Thunk m (PLazyCon m) (LazyPairing a m) -> PLazyCon m (LazyPairing a m)
   -- ^ Merging 'h = Link(a, b, m)' costs one tick and performs two links, and assigns some credits to 'm'.
   --   Because 'link a b' costs 'log2 (sa + sb)' credits, we have total costs of:
@@ -36,7 +35,6 @@ data PLazyCon m a where
   --     <= 6 * log2 sh (since sa + sb + sm <= sh)
 
 instance MonadCredit m => HasStep (PLazyCon m) m where
-  step Em = pure Empty
   step (Link sm a b m) = tick >> do -- 1
     creditWith m (log2 sm) -- log2 sm
     m <- force m -- free
@@ -69,7 +67,7 @@ link a@(Heap sa x a1 a2) b@(Heap sb y b1 b2)
 instance Heap LazyPairing where
   empty = pure Empty
   insert x a = do
-    t <- delay $ Em
+    t <- value $ Empty
     merge (Heap 0 x Empty t) a
   -- | 'merge' costs '1 + log2 (sa + sb)' credits
   merge a b = tick >> link a b
@@ -86,7 +84,6 @@ instance BoundedHeap LazyPairing where
   hcost n SplitMin = 1 + 3 * log2 (n + 1)
 
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (PLazyCon m a) where
-  prettyCell Em = pure $ mkMCell "Empty" []
   prettyCell (Link _ a b m) = do
     a' <- prettyCell a
     b' <- prettyCell b

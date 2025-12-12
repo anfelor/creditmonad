@@ -22,8 +22,8 @@ instance Queue Batched where
   uncons (Batched (x:front) rear) = Just . (x,) <$> bqueue (Batched front rear)
 
 instance BoundedQueue Batched where
-  qcost n (Snoc _) = 1
-  qcost n Uncons = linear n
+  qcost _ (Snoc _) = 1
+  qcost _ Uncons = 1
 
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (Batched a m) where
   prettyCell (Batched f r) = do

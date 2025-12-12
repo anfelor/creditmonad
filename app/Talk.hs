@@ -37,11 +37,11 @@ data Talk a m
 
 data ILazyCon m a where
   IPush :: Pretty a => Talk a m -> a -> ILazyCon m (Talk a m)
-  IPop :: Talk a m -> ILazyCon m (Talk a m)
+  ITail :: Talk a m -> ILazyCon m (Talk a m)
 
 instance MonadCredit m => HasStep (ILazyCon m) m where
   step (IPush q p) = push q p
-  step (IPop q) = tail q
+  step (ITail q) = tail q
 
 isEmpty :: Talk a m -> Bool
 isEmpty Empty = True
@@ -99,7 +99,7 @@ tail q = tick >> case q of
       then fromDigit rear
       else do
         (y, z) <- head m'
-        t <- delay $ IPop m'
+        t <- delay $ ITail m'
         when (size rear == 1) $ creditWith t 1
         deep (Two y z) t rear
   _ -> fail "tail: empty queue"
@@ -114,8 +114,8 @@ showThunk :: (MonadLazy m, Show a)
 showThunk t = lazymatch t showTalk $ \case
     IPush middle xy -> do
       m <- showTalk middle
-      pure $ "(snoc " ++ m ++ " " ++ show xy ++ ")"
-    IPop q -> do
+      pure $ "(push " ++ m ++ " " ++ show xy ++ ")"
+    ITail q -> do
       m <- showTalk q
       pure $ "(tail " ++ m ++ ")"
 
@@ -133,17 +133,10 @@ instance (Arbitrary a, Show a, Pretty a) => DataStructure (Talk a) (QueueOp a) w
   cost _ Pop = 2
   create = pure $ Empty
   perform sz q (Push x) = (sz + 1,) <$> push q x
-  perform sz q Pop = do
-    m <- if isEmpty q
-           then pure Nothing
-           else do
-             h <- head q
-             t <- tail q
-             pure $ Just (h, t)
-    q' <- case m of
-      Nothing -> pure $ Empty
-      Just (_, q') -> pure q'
-    pure (max 0 (sz - 1), q')
+  perform sz q Pop =
+    if isEmpty q
+      then pure (0, Empty)
+      else (sz - 1,) <$> tail q
 
 instance MemoryCell m a => MemoryCell m (Digit a) where
   prettyCell Zero = pure $ mkMCell "Zero" []
@@ -160,9 +153,9 @@ instance (MonadMemory m, MemoryCell m a) => MemoryCell m (ILazyCon m a) where
     t' <- prettyCell t
     let xy' = mkMCell (show $ pretty xy) []
     pure $ mkMCell "Push" [t', xy']
-  prettyCell (IPop q) = do
+  prettyCell (ITail q) = do
     q' <- prettyCell q
-    pure $ mkMCell "Pop" [q']
+    pure $ mkMCell "Tail" [q']
 
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (Talk a m) where
   prettyCell Empty = do

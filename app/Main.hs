@@ -28,7 +28,10 @@ import Test.Credit.Heap.Binomial
 import Test.Credit.Heap.ZBinomial
 import Test.Credit.Heap.LazyPairing
 import Test.Credit.Heap.LazyPairingFIP
+import Test.Credit.Heap.Pairing
 import Test.Credit.Heap.Scheduled
+import Test.Credit.Heap.Maxiphobic
+import Test.Credit.Heap.RoundRobin
 import Test.Credit.Sortable.Base
 import Test.Credit.Sortable.MergeSort
 import Test.Credit.Sortable.Scheduled
@@ -54,6 +57,15 @@ instance Arbitrary Alpha where
 
 benchmarks :: Args -> [(String, IO Result)]
 benchmarks args =
+  [ (benchs ++ ":", runB args Path)
+  | (benchs, runB) <- reverse
+      [ ("Batched Queue", run @(Q Batched Alpha))
+      , ("Pairing Heap", run @(H Pairing Alpha))
+      , ("Pairing Heap (Merge)", run @(BH Pairing Alpha))
+      , ("RoundRobin Heap", run @(H RoundRobin Alpha))
+      , ("RoundRobin Heap (Merge)", run @(BH RoundRobin Alpha))
+      ]
+  ] ++
   [ (benchs ++ strats ++ ":", runB args strat)
   | (strats, strat) <-
       [ (" (path)", Path)
@@ -62,8 +74,7 @@ benchmarks args =
       , (" (random)", Random)
       ]
   , (benchs, runB) <- reverse
-      [ ("Batched Queue", run @(Q Batched Alpha))
-      , ("Bankers Queue", run @(Q BQueue Alpha))
+      [ ("Bankers Queue", run @(Q BQueue Alpha))
       , ("Physicists Queue", run @(Q Physicists Alpha))
       , ("Realtime Queue", run @(Q RQueue Alpha))
       , ("Bootstrapped Queue", run @(Q Bootstrapped Alpha))
@@ -83,12 +94,14 @@ benchmarks args =
       -- , ("Constant-time Lazy Pairing Heap", run @(H LazyPairingConstant Alpha))
       , ("FIP Lazy Pairing Heap", run @(H LazyPairingFIP Alpha))
       , ("Scheduled Binomial Heap", run @(H Scheduled Alpha))
+      , ("Maxiphobic Heap", run @(H Maxiphobic Alpha))
       , ("Binomial Heap (Merge)", run @(BH Binomial Alpha))
       , ("ZBinomial Heap (Merge)", run @(BH ZBinomial Alpha))
       , ("Lazy Pairing Heap (Merge)", run @(BH LazyPairing Alpha))
       -- , ("Constant-time Lazy Pairing Heap (Merge)", run @(BH LazyPairingConstant Alpha))
       , ("FIP Lazy Pairing Heap (Merge)", run @(BH LazyPairingFIP Alpha))
       , ("Scheduled Binomial Heap (Merge)", run @(BH Scheduled Alpha))
+      , ("Maxiphobic Heap (Merge)", run @(BH Maxiphobic Alpha))
       , ("Mergesort", run @(S MergeSort Alpha))
       , ("Scheduled Mergesort", run @(S SMergeSort Alpha))
       , ("Binary Random Access List", run @(RA BinaryRA Alpha))

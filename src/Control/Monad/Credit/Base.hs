@@ -4,7 +4,7 @@ module Control.Monad.Credit.Base
   ( Cell(..), Credit(..), Ticks(..)
   , MonadCount(..), MonadLazy(..), MonadCredit(..), HasStep(..), Lazy(..), MonadInherit(..)
   , MTree(..), Memory(..), MemoryCell(..), MonadMemory(..), linearize, mkMCell, mkMList
-  , MemoryStructure(..), PrettyCell(..)
+  , MemoryStructure(..), ShowCell(..), PrettyCell(..)
   ) where
 
 import Control.Monad
@@ -116,6 +116,12 @@ class MonadLazy m => MonadMemory m where
 
 instance (MonadMemory m, MemoryCell m a, MemoryCell m (t a)) => MemoryCell m (Thunk m t a) where
   prettyCell t = prettyThunk t
+
+newtype ShowCell a = ShowCell a
+  deriving (Eq, Ord, Show)
+
+instance (Monad m, Show a) => MemoryCell m (ShowCell a) where
+  prettyCell (ShowCell a) = pure $ mkMCell (show a) []
 
 newtype PrettyCell a = PrettyCell a
   deriving (Eq, Ord, Show)
