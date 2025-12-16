@@ -39,22 +39,6 @@ signedForce ((s, _), t) = do
     t `creditWith` 1
   force t
 
--- | The cost for performing merge on skew heaps:
---   - "log2 (2*sa)": For our log2 function, log2 1 = log2 0 = 0.
---     We multiply the size by two to ensure that
---     log2 a >= log (a/2) + 1 for all a > 0.
---   - "log2 (2*sa) + log2 (2*sb)": each step we reduce one of
---     the arguments, so we need to pay a log for each argument.
---   - "2*(...)": each good node costs two credits,
---     one for the tick and one to pay for the debit.
---   - "alreadyForced": if a good node is at the top level,
---     we have already paid for the debit, but not yet for the tick.
-credits :: (Sign, Size) -> (Sign, Size) -> Credit
-credits (ga, sa) (gb, sb) = 2 * (log2 (2*sa) + log2 (2*sb)) - alreadyForced ga - alreadyForced gb
-  where
-    alreadyForced Good = 1
-    alreadyForced Bad  = 0
-
 size :: Skew a m -> Size
 size Null = 0
 size (Fork _ ((_, sa), _) ((_, sb), _)) = 1 + sa + sb
@@ -63,17 +47,22 @@ sign :: Skew a m -> Sign
 sign Null = Bad
 sign (Fork _ ((_, sa), _) ((_, sb), _)) = if sa <= sb then Good else Bad
 
--- | Simulate a mrg step to report the new sign and size
-simMrg :: Ord a => Skew a m -> Skew a m -> (Sign, Size)
-simMrg a Null = (sign a, size a)
-simMrg Null b = (sign b, size b)
-simMrg a@(Fork xa aa ba) b@(Fork xb ab bb)
-  |  xa <= xb  = (sign (Fork xa ba (simJoin aa b)), size a + size b)
-  |  otherwise = (sign (Fork xb bb (simJoin ab a)), size a + size b)
-
--- | Simulate a join step to report the new size
-simJoin :: SThunk a m -> Skew a m -> SThunk a m
-simJoin ((_, st), t) b = ((undefined, st + size b), undefined)
+-- | The cost for performing merge on skew heaps:
+--   - "log2 (2 * size a)": For our log2 function, log2 1 = log2 0 = 0.
+--     We multiply the size by two to ensure that
+--     log2 a >= log (a/2) + 1 for all a > 0.
+--   - "log2 (2 * size a) + log2 (2 * size b)": each step we reduce
+--     one of the arguments, so we need to pay a log for each argument.
+--   - "2*(...)": each good node costs two credits,
+--     one for the tick and one to pay for the debit.
+--   - "alreadyForced": if a good node is at the top level,
+--     we have already paid for the debit, but not yet for the tick.
+credits :: Skew a m -> Skew a m -> Credit
+credits a b = 2 * (log2 (2 * size a) + log2 (2 * size b))
+                - alreadyForced (sign a) - alreadyForced (sign b)
+  where
+    alreadyForced Good = 1
+    alreadyForced Bad  = 0
 
 mrg :: (MonadCredit m, Ord a) => Skew a m -> Skew a m -> m (Skew a m)
 mrg a Null = pure a
@@ -87,8 +76,20 @@ join (Fork x a b) c = tick >> do
   a' <- signedForce a
   t <- delay $ Mrg a' c
   let s = simMrg a' c
-  t `creditWith` credits (sign a', size a') (sign c, size c)
+  t `creditWith` credits a' c
   pure $ Fork x b (s, t)
+
+-- | Simulate a mrg step to report the new sign and size
+simMrg :: Ord a => Skew a m -> Skew a m -> (Sign, Size)
+simMrg a Null = (sign a, size a)
+simMrg Null b = (sign b, size b)
+simMrg a@(Fork xa aa ba) b@(Fork xb ab bb)
+  |  xa <= xb  = (sign (Fork xa ba (simJoin aa b)), size a + size b)
+  |  otherwise = (sign (Fork xb bb (simJoin ab a)), size a + size b)
+
+-- | Simulate a join step to report the new size
+simJoin :: SThunk a m -> Skew a m -> SThunk a m
+simJoin ((_, st), t) b = ((undefined, st + size b), undefined)
 
 instance Heap Skew where
   empty = pure Null
