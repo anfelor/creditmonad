@@ -56,6 +56,7 @@ library
       Test.Credit.Heap.Scheduled
       Test.Credit.Heap.Maxiphobic
       Test.Credit.Heap.RoundRobin
+      Test.Credit.Heap.Skew
       Test.Credit.Queue.Bankers
       Test.Credit.Queue.Base
       Test.Credit.Queue.Basic

@@ -32,6 +32,7 @@ import Test.Credit.Heap.Pairing
 import Test.Credit.Heap.Scheduled
 import Test.Credit.Heap.Maxiphobic
 import Test.Credit.Heap.RoundRobin
+import Test.Credit.Heap.Skew
 import Test.Credit.Sortable.Base
 import Test.Credit.Sortable.MergeSort
 import Test.Credit.Sortable.Scheduled
@@ -95,6 +96,7 @@ benchmarks args =
       , ("FIP Lazy Pairing Heap", run @(H LazyPairingFIP Alpha))
       , ("Scheduled Binomial Heap", run @(H Scheduled Alpha))
       , ("Maxiphobic Heap", run @(H Maxiphobic Alpha))
+      , ("Skew Heap", run @(H Skew Alpha))
       , ("Binomial Heap (Merge)", run @(BH Binomial Alpha))
       , ("ZBinomial Heap (Merge)", run @(BH ZBinomial Alpha))
       , ("Lazy Pairing Heap (Merge)", run @(BH LazyPairing Alpha))
@@ -102,6 +104,7 @@ benchmarks args =
       , ("FIP Lazy Pairing Heap (Merge)", run @(BH LazyPairingFIP Alpha))
       , ("Scheduled Binomial Heap (Merge)", run @(BH Scheduled Alpha))
       , ("Maxiphobic Heap (Merge)", run @(BH Maxiphobic Alpha))
+      , ("Skew Heap (Merge)", run @(BH Skew Alpha))
       , ("Mergesort", run @(S MergeSort Alpha))
       , ("Scheduled Mergesort", run @(S SMergeSort Alpha))
       , ("Binary Random Access List", run @(RA BinaryRA Alpha))
