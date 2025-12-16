@@ -264,11 +264,12 @@ instance (Monad m) => MonadMemory (CreditT s m) where
   {-# SPECIALIZE instance MonadMemory (CreditT s (State st)) #-}
   prettyThunk (Thunk c s) = do
     e <- liftST $ readSTRef s
-    (Memory mtree mstore) <- case e of
-      Left a -> prettyCell a
+    case e of
+      Left a -> do
+        (Memory mtree mstore) <- prettyCell a
+        cr <- getCredit c
+        pure $ Memory (Indirection c) (Map.insert c (mtree, cr) mstore)
       Right b -> prettyCell b
-    cr <- getCredit c
-    pure $ Memory (Indirection c) (Map.insert c (mtree, cr) mstore)
 
 instance Pretty Error where
   pretty (OutOfCredits i) = "Out of credits for" <+> pretty i
