@@ -51,6 +51,7 @@ library:
     - Test.Credit.Deque.SimpleCat
     - Test.Credit.Deque.Streams
     - Test.Credit.Finger.Base
+    - Test.Credit.Finger.Original
     - Test.Credit.Finger.Simplified
     - Test.Credit.Heap.Base
     - Test.Credit.Heap.Binomial

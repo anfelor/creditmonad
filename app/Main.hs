@@ -23,6 +23,7 @@ import Test.Credit.Deque.Catenable
 import Test.Credit.Deque.SimpleCat
 import Test.Credit.Deque.ImplicitCat
 import Test.Credit.Finger.Base
+import Test.Credit.Finger.Original
 import Test.Credit.Finger.Simplified
 import Test.Credit.Heap.Base
 import Test.Credit.Heap.Binomial
@@ -114,6 +115,12 @@ benchmarks args =
       , ("Simplified Finger Tree (Merge)", run @(BH (FingerHeap Simplified) Alpha))
       , ("Simplified Finger Tree (Random Access)", run @(RA (FingerRA Simplified) Alpha))
       , ("Simplified Finger Tree (Sortable)", run @(S (FingerSort Simplified) Alpha))
+      , ("Original Finger Tree (Deque)", run @(D (FingerDeque Original) Alpha))
+      , ("Original Finger Tree (Concat)", run @(BD (FingerDeque Original) Alpha))
+      , ("Original Finger Tree (Heap)", run @(H (FingerHeap Original) Alpha))
+      , ("Original Finger Tree (Merge)", run @(BH (FingerHeap Original) Alpha))
+      , ("Original Finger Tree (Random Access)", run @(RA (FingerRA Original) Alpha))
+      , ("Original Finger Tree (Sortable)", run @(S (FingerSort Original) Alpha))
       ]
   ]
 
