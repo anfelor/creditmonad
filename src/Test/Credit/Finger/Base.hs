@@ -159,7 +159,7 @@ instance (MonadMemory m, MemoryCell m (f () (Elem a) m)) => MemoryCell m (Finger
   prettyCell (FingerDeque q) = prettyCell q
 
 instance (MemoryStructure (f () (Elem a))) => MemoryStructure (FingerDeque f a) where
-  prettyStructure = prettyStructure
+  prettyStructure (FingerDeque q) = prettyStructure q
 
 -- Random Access
 
@@ -219,7 +219,7 @@ instance (MonadMemory m, MemoryCell m (f Size (Elem a) m)) => MemoryCell m (Fing
   prettyCell (FingerRA q) = prettyCell q
 
 instance (MemoryStructure (f Size (Elem a))) => MemoryStructure (FingerRA f a) where
-  prettyStructure = prettyStructure
+  prettyStructure (FingerRA q) = prettyStructure q
 
 -- Heap
 
@@ -260,7 +260,7 @@ instance (MonadMemory m, MemoryCell m (f (Prio a) (Elem a) m)) => MemoryCell m (
   prettyCell (FingerHeap q) = prettyCell q
 
 instance (MemoryStructure (f (Prio a) (Elem a))) => MemoryStructure (FingerHeap f a) where
-  prettyStructure = prettyStructure
+  prettyStructure (FingerHeap q) = prettyStructure q
 
 -- Sortable Collection
 
@@ -295,4 +295,4 @@ instance (MonadMemory m, MemoryCell m (f (Key a) (Elem a) m)) => MemoryCell m (F
   prettyCell (FingerSort q) = prettyCell q
 
 instance (MemoryStructure (f (Key a) (Elem a))) => MemoryStructure (FingerSort f a) where
-  prettyStructure = prettyStructure
+  prettyStructure (FingerSort q) = prettyStructure q
