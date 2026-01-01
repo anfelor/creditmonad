@@ -22,7 +22,8 @@ import Test.Credit.Deque.Realtime
 import Test.Credit.Deque.Catenable
 import Test.Credit.Deque.SimpleCat
 import Test.Credit.Deque.ImplicitCat
-import Test.Credit.Finger
+import Test.Credit.Finger.Base
+import Test.Credit.Finger.Simplified
 import Test.Credit.Heap.Base
 import Test.Credit.Heap.Binomial
 import Test.Credit.Heap.ZBinomial
@@ -107,12 +108,12 @@ benchmarks args =
       , ("Scheduled Mergesort", run @(S SMergeSort Alpha))
       , ("Binary Random Access List", run @(RA BinaryRA Alpha))
       , ("Zeroless Random Access List", run @(RA ZerolessRA Alpha))
-      , ("Finger Tree (Deque)", run @(D FingerDeque Alpha))
-      , ("Finger Tree (Concat)", run @(BD FingerDeque Alpha))
-      , ("Finger Tree (Heap)", run @(H FingerHeap Alpha))
-      , ("Finger Tree (Merge)", run @(BH FingerHeap Alpha))
-      , ("Finger Tree (Random Access)", run @(RA FingerRA Alpha))
-      , ("Finger Tree (Sortable)", run @(S FingerSort Alpha))
+      , ("Simplified Finger Tree (Deque)", run @(D (FingerDeque Simplified) Alpha))
+      , ("Simplified Finger Tree (Concat)", run @(BD (FingerDeque Simplified) Alpha))
+      , ("Simplified Finger Tree (Heap)", run @(H (FingerHeap Simplified) Alpha))
+      , ("Simplified Finger Tree (Merge)", run @(BH (FingerHeap Simplified) Alpha))
+      , ("Simplified Finger Tree (Random Access)", run @(RA (FingerRA Simplified) Alpha))
+      , ("Simplified Finger Tree (Sortable)", run @(S (FingerSort Simplified) Alpha))
       ]
   ]
 

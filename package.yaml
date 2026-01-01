@@ -50,7 +50,8 @@ library:
     - Test.Credit.Deque.Realtime
     - Test.Credit.Deque.SimpleCat
     - Test.Credit.Deque.Streams
-    - Test.Credit.Finger
+    - Test.Credit.Finger.Base
+    - Test.Credit.Finger.Simplified
     - Test.Credit.Heap.Base
     - Test.Credit.Heap.Binomial
     - Test.Credit.Heap.ZBinomial
