@@ -1,6 +1,6 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies, LambdaCase #-}
 
--- Gibbons, Jeremy - Moor, Oege de (Eds) - The Fun of Programming
+-- | Gibbons, Jeremy - Moor, Oege de (Eds) - The Fun of Programming
 -- Chapter 1 - Fun with binary heap trees - Chris Okasaki
 module Test.Credit.Heap.Skew where
 
@@ -23,10 +23,12 @@ type SThunk a m = ((Sign, Size), Thunk m (SLazyCon m) (Skew a m))
 -- this is purely for the purpose of the analysis
 
 data SLazyCon m a where
-  Mrg :: Ord a => Skew a m -> Skew a m -> SLazyCon m (Skew a m)
+  Mrg :: Ord a => SThunk a m -> Skew a m -> SLazyCon m (Skew a m)
 
 instance MonadCredit m => HasStep (SLazyCon m) m where
-  step (Mrg a b) = mrg a b
+  step (Mrg a b) = do
+    a' <- signedForce a
+    mrg a' b
 
 isEmpty :: Skew a m -> Bool
 isEmpty Null = True
@@ -43,9 +45,12 @@ size :: Skew a m -> Size
 size Null = 0
 size (Fork _ ((_, sa), _) ((_, sb), _)) = 1 + sa + sb
 
-sign :: Skew a m -> Sign
-sign Null = Bad
-sign (Fork _ ((_, sa), _) ((_, sb), _)) = if sa <= sb then Good else Bad
+sign' :: Skew a m -> Sign
+sign' Null = Bad
+sign' (Fork _ ((_, sa), _) ((_, sb), _)) = if sa <= sb then Good else Bad
+
+sign :: (MonadCredit m, Ord a) => Thunk m (SLazyCon m) (Skew a m) -> m Sign
+sign a = lazymatch a (pure . sign') (\(Mrg a b) -> sign' <$> simMrg a b)
 
 -- | The cost for performing merge on skew heaps:
 --   - "log2 (2 * size a)": For our log2 function, log2 1 = log2 0 = 0.
@@ -57,51 +62,57 @@ sign (Fork _ ((_, sa), _) ((_, sb), _)) = if sa <= sb then Good else Bad
 --     one for the tick and one to pay for the debit.
 --   - "alreadyForced": if a good node is at the top level,
 --     we have already paid for the debit, but not yet for the tick.
-credits :: Skew a m -> Skew a m -> Credit
-credits a b = 2 * (log2 (2 * size a) + log2 (2 * size b))
-                - alreadyForced (sign a) - alreadyForced (sign b)
-  where
-    alreadyForced Good = 1
-    alreadyForced Bad  = 0
+credits :: SThunk a m -> Skew a m -> Credit
+credits ((ssa, 0), _) b = isBad (sign' b)
+credits ((ssa, sa), _) b = 2 * (log2 sa + log2 (size b)) + 1 + isBad (sign' b)
+
+isBad Good = 0
+isBad Bad  = 1
 
 mrg :: (MonadCredit m, Ord a) => Skew a m -> Skew a m -> m (Skew a m)
-mrg a Null = pure a
-mrg Null b = pure b
+mrg a Null = tick >> pure a
+mrg Null b = tick >> pure b
 mrg a@(Fork xa aa ba) b@(Fork xb ab bb)
   | xa <= xb  = join a b
   | otherwise = join b a
 
 join :: (MonadCredit m, Ord a) => Skew a m -> Skew a m -> m (Skew a m)
 join (Fork x a b) c = tick >> do
-  a' <- signedForce a
-  t <- delay $ Mrg a' c
-  let s = simMrg a' c
-  t `creditWith` credits a' c
-  pure $ Fork x b (s, t)
+  t <- delay $ Mrg a c
+  t `creditWith` credits a c
+  sst <- sign t
+  pure $ Fork x b ((sst, snd (fst a) + size c), t)
 
--- | Simulate a mrg step to report the new sign and size
-simMrg :: Ord a => Skew a m -> Skew a m -> (Sign, Size)
-simMrg a Null = (sign a, size a)
-simMrg Null b = (sign b, size b)
-simMrg a@(Fork xa aa ba) b@(Fork xb ab bb)
-  |  xa <= xb  = (sign (Fork xa ba (simJoin aa b)), size a + size b)
-  |  otherwise = (sign (Fork xb bb (simJoin ab a)), size a + size b)
-
--- | Simulate a join step to report the new size
-simJoin :: SThunk a m -> Skew a m -> SThunk a m
-simJoin ((_, st), t) b = ((undefined, st + size b), undefined)
+-- | Simulate a merge step: we return the correct result "for free"
+simMrg :: (MonadCredit m, Ord a) => SThunk a m -> Skew a m -> m (Skew a m)
+simMrg a b = do
+  a <- lazymatch (snd a) (\a -> pure a) (\(Mrg a b) -> simMrg a b)
+  case (a, b) of
+    (a, Null) -> pure a
+    (Null, b) -> pure b
+    (Fork xa aa ba, Fork xb ab bb)
+      | xa <= xb  -> do
+        pure $ Fork xa ba ((undefined, snd (fst aa) + size b), undefined)
+      | otherwise -> do
+        pure $ Fork xb bb ((undefined, snd (fst ab) + size a), undefined)
 
 instance Heap Skew where
   empty = pure Null
   insert x a = do
     null <- ((Bad, 0),) <$> value Null
-    merge (Fork x null null) a
+    a <- ((sign' a, size a),) <$> value a
+    t <- delay $ Mrg a (Fork x null null)
+    t `creditWith` credits a (Fork x null null)
+    sst <- sign t
+    signedForce ((sst, snd (fst a) + 1), t)
   merge a b = mrg a b
   splitMin Null = pure Nothing
   splitMin (Fork x a b) = do
-    a <- signedForce a
     b <- signedForce b
-    ab <- merge a b
+    ab <- delay $ Mrg a b
+    ab `creditWith` credits a b
+    ssab <- sign ab
+    ab <- signedForce ((ssab, snd (fst a) + size b), ab)
     pure $ Just (x, ab)
 
 instance BoundedHeap Skew where
@@ -118,7 +129,7 @@ instance (MonadMemory m, MemoryCell m a) => MemoryCell m (Skew a m) where
         pure $ mkMCell "" [x', a', b']
 
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (SLazyCon m a) where
-  prettyCell (Mrg a b) = do
+  prettyCell (Mrg (_, a) b) = do
     a' <- prettyCell a
     b' <- prettyCell b
     pure $ mkMCell "Mrg" [a', b']
