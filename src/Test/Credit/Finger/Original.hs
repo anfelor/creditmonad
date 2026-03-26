@@ -162,7 +162,7 @@ deepL [] _ m sf = do
       t <- delay $ FTail m'
       unless (isSafe sf) $ t `creditWith` 1
       h <- head m'
-      deep (measureTail m') (nodeToDigit h) t sf
+      deep (measureTail m') (toDigit h) t sf
 deepL pr vm m sf = deep vm pr m sf
 
 measureTail :: Measured a v
@@ -171,10 +171,6 @@ measureTail q = case q of
   Empty -> mempty
   Single _ -> mempty
   Deep v pr _ sf -> measure (Prelude.tail pr) <> v <> measure sf
-
-nodeToDigit :: Node v a -> Digit a
-nodeToDigit (Pair _ x y) = [x, y]
-nodeToDigit (Triple _ x y z) = [x, y, z]
 
 snoc :: (MonadCredit m, Measured a v)
      => Original v a m -> a -> m (Original v a m)
@@ -221,7 +217,7 @@ deepR pr _ m [] = do
       t <- delay $ FInit m'
       unless (isSafe pr) $ t `creditWith` 1
       l <- last m'
-      deep (measureInit m') pr t (nodeToDigit l)
+      deep (measureInit m') pr t (toDigit l)
 deepR s vm m sf = deep vm s m sf
 
 measureInit :: Measured a v
