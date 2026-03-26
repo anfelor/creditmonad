@@ -1,14 +1,12 @@
-{-# LANGUAGE TypeFamilies, StandaloneDeriving, UndecidableInstances, OverloadedStrings, DerivingStrategies, MagicHash #-}
+{-# LANGUAGE TypeFamilies, StandaloneDeriving, UndecidableInstances, OverloadedStrings, DerivingStrategies, MagicHash, LambdaCase #-}
 
 module Control.Monad.Credit.CreditM (CreditM, Error(..), runCreditM, CreditT, runCreditT, resetCurrentThunk) where
 
-import Prelude hiding (lookup)
-import Control.Monad
+import Prelude hiding (quot, lookup)
 import Control.Monad.Except
 import Control.Monad.Identity
 import Control.Monad.State.Lazy
 import Control.Monad.ST.Trans
-import Data.Either
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.IntMap (IntMap)
@@ -145,6 +143,9 @@ getMe = do
   St me _ _ <- get
   pure me
 
+setMe :: Monad m => Cell -> CreditT s m ()
+setMe me = modify' $ \(St _ c nxt) -> St me c nxt
+
 getNext :: Monad m => CreditT s m Cell
 getNext = do
   St _ _ nxt <- get
@@ -165,37 +166,47 @@ instance Monad m => MonadCount (CreditT s m) where
     me <- getMe
     withCredits $ subCredit me 1
 
+instance Monad m => MonadUpdate (CreditT s m) where
+  {-# SPECIALIZE instance MonadUpdate (CreditT s Identity) #-}
+  {-# SPECIALIZE instance MonadUpdate (CreditT s (State st)) #-}
+  data Quotient (CreditT s m) b = Quotient !Cell !(STRef s b)
+  quot b = do
+    i <- getNext
+    withCredits $ pure . open i
+    s <- liftST $ newSTRef b
+    pure (Quotient i s)
+  update (Quotient i s) f = do
+    me <- getMe
+    setMe i
+    b <- liftST $ readSTRef s
+    b' <- f b
+    liftST $ writeSTRef s b'
+    setMe me
+    pure b'
+  representative (Quotient i s) = do
+    liftST $ readSTRef s
+
 instance Monad m => MonadLazy (CreditT s m) where
   {-# SPECIALIZE instance MonadLazy (CreditT s Identity) #-}
   {-# SPECIALIZE instance MonadLazy (CreditT s (State st)) #-}
-  data Thunk (CreditT s m) t b = Thunk !Cell !(STRef s (Either (t b) b))
-  delay a = do
-    i <- getNext
-    withCredits $ pure . open i
-    s <- liftST $ newSTRef (Left a)
-    pure (Thunk i s)
-  value b = do
-    i <- getNext
-    withCredits $ pure . open i
-    s <- liftST $ newSTRef (Right b)
-    pure (Thunk i s)
-  force (Thunk i t) = do
-    t' <- liftST $ readSTRef t
-    case t' of
-      Left a -> do  -- [step] rule in the big-step semantics of the paper
-        St me _ _ <- get
-        modify' $ \(St _ c nxt) -> St i c nxt
-        b <- step a
-        modify' $ \(St _ c nxt) -> St me c nxt
-        liftST $ writeSTRef t (Right b)
-        withCredits $ close i
-        pure b
-      Right b -> pure b
-  lazymatch (Thunk _ t) f g = do
-    t' <- liftST $ readSTRef t
-    case t' of
-      Right b -> f b
-      Left a -> g a
+  value v = do
+    (Quotient i s) <- quot (Right v)
+    -- Values have their account closed immediately,
+    -- to ensure that `hasAtLeast` always succeeds on them
+    withCredits $ close i
+    pure $ Quotient i s
+
+  force q = do
+    v <- update q $ \case
+      Left t -> do
+        b <- step t
+        me <- getMe
+        withCredits $ close me
+        pure $ Right b
+      Right v -> pure $ Right v
+    case v of
+      Left t -> undefined
+      Right v -> pure v
 
 assertAtLeast :: Monad m => Cell -> Credit -> CreditT s m ()
 assertAtLeast (Cell i) n = do
@@ -214,20 +225,19 @@ assertAtLeast (Cell i) n = do
 instance Monad m => MonadCredit (CreditT s m) where
   {-# SPECIALIZE instance MonadCredit (CreditT s Identity) #-}
   {-# SPECIALIZE instance MonadCredit (CreditT s (State st)) #-}
-  creditWith (Thunk i _) n =
+  creditWith (Quotient i _) n =
     if n > 0 then do
       me <- getMe
       withCredits $ subCredit me n . addCredit i n
     else pure ()
-  hasAtLeast (Thunk i t) n = do
+  hasAtLeast (Quotient i t) n = do
     t' <- liftST $ readSTRef t
-    when (isLeft t') $ do
-      assertAtLeast i n
+    assertAtLeast i n
 
 instance Monad m => MonadInherit (CreditT s m) where
   {-# SPECIALIZE instance MonadInherit (CreditT s Identity) #-}
   {-# SPECIALIZE instance MonadInherit (CreditT s (State st)) #-}
-  creditAllTo (Thunk i _) = do
+  creditAllTo (Quotient i _) = do
     me <- getMe
     withCredits $ me `closeWithHeir` i
 
@@ -262,7 +272,12 @@ getCredit (Cell i) = do
 instance (Monad m) => MonadMemory (CreditT s m) where
   {-# SPECIALIZE instance MonadMemory (CreditT s Identity) #-}
   {-# SPECIALIZE instance MonadMemory (CreditT s (State st)) #-}
-  prettyThunk (Thunk c s) = do
+  prettyQuotient (Quotient c s) = do
+    a <- liftST $ readSTRef s
+    (Memory mtree mstore) <- prettyCell a
+    cr <- getCredit c
+    pure $ Memory (Indirection c) (Map.insert c (mtree, cr) mstore)
+  prettyThunk (Quotient c s) = do
     e <- liftST $ readSTRef s
     case e of
       Left a -> do

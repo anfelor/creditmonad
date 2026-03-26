@@ -4,7 +4,7 @@ module Test.Credit.RandomAccess.Binary where
 
 import Prelude hiding (lookup)
 import Prettyprinter (Pretty)
-import Control.Monad.Credit
+import Control.Monad.Credit hiding (update)
 import Test.Credit
 import Test.Credit.RandomAccess.Base
 

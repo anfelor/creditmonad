@@ -41,7 +41,7 @@ instance MonadCredit m => HasStep (PLazyCon m) m where
     ab <- link a b -- log2 (sa + sb)
     link ab m -- log2 (sa + sb + sm)
 
-type PThunk s = Thunk s (PLazyCon s)
+type PThunk s a = Thunk s (PLazyCon s) a
 
 data NEHeap s a = NEHeap Size a (LazyPairing a s) (PThunk s (LazyPairing a s))
 

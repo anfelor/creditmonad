@@ -13,7 +13,7 @@ data Stream m a
   | SNil
   | SIndirect (SThunk m (Stream m a))
 
-type SThunk m = Thunk m (SLazyCon m)
+type SThunk m a = Thunk m (SLazyCon m) a
 
 data SLazyCon m a where
   SAppend :: Stream m a -> Stream m a -> SLazyCon m (Stream m a)

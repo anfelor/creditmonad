@@ -3,7 +3,7 @@
 module Test.Credit.RandomAccess.Base where
 
 import Prelude hiding (lookup)
-import Control.Monad.Credit
+import Control.Monad.Credit hiding (update)
 import Test.Credit
 import Test.QuickCheck
 

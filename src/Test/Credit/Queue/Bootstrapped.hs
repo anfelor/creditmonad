@@ -17,7 +17,7 @@ data BLazyCon m a where
 instance MonadCredit m => HasStep (BLazyCon m) m where
   step (Rev xs) = rev xs []
 
-type BThunk m = Thunk m (BLazyCon m)
+type BThunk m a = Thunk m (BLazyCon m) a
 
 data NEQueue a m = NEQueue
   { lenfm :: !Int

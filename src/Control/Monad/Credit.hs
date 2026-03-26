@@ -3,7 +3,8 @@
 module Control.Monad.Credit 
   (
   -- * Computations with Credits
-    Control.Monad.Credit.Base.MonadCount(..), Control.Monad.Credit.Base.MonadLazy (..), Control.Monad.Credit.Base.HasStep(..), Control.Monad.Credit.Base.Lazy(..)
+    Control.Monad.Credit.Base.MonadCount(..), Control.Monad.Credit.Base.MonadUpdate(..),
+    Control.Monad.Credit.Base.Thunk, Control.Monad.Credit.Base.MonadLazy (..), Control.Monad.Credit.Base.HasStep(..), Control.Monad.Credit.Base.Lazy(..)
   , Control.Monad.Credit.Base.Credit, Control.Monad.Credit.Base.MonadCredit(..), Control.Monad.Credit.Base.MonadInherit(..)
   -- * Counter Monad
   , Control.Monad.Credit.Base.Ticks, Control.Monad.Credit.CounterM.CounterM, Control.Monad.Credit.CounterM.runCounterM, Control.Monad.Credit.CounterM.CounterT, Control.Monad.Credit.CounterM.runCounterT

@@ -23,7 +23,7 @@ instance MonadCredit m => HasStep (PLazyCon m) m where
   step (AppRev xs ys) = app xs =<< rev ys []
   step (Tail xs) = tick >> drop 1 <$> force xs
 
-type PThunk m = Thunk m (PLazyCon m)
+type PThunk m a = Thunk m (PLazyCon m) a
 
 data Physicists a m = Queue [a] Int (PThunk m [a]) (PThunk m [a]) Int [a]
 

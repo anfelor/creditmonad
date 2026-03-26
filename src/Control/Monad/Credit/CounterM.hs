@@ -59,29 +59,24 @@ instance Monad m => MonadCount (CounterT s m) where
     (St c) <- get
     put (St (c + 1))
 
+instance Monad m => MonadUpdate (CounterT s m) where
+  {-# SPECIALIZE instance MonadUpdate (CounterT s Identity) #-}
+  {-# SPECIALIZE instance MonadUpdate (CounterT s (State st)) #-}
+  data Quotient (CounterT s m) b = Quotient !(STRef s b)
+  quot b = do
+    s <- liftST $ newSTRef b
+    pure (Quotient s)
+  update (Quotient s) f = do
+    b <- liftST $ readSTRef s
+    b' <- f b
+    liftST $ writeSTRef s b'
+    pure b'
+  representative (Quotient s) = do
+    liftST $ readSTRef s
+
 instance Monad m => MonadLazy (CounterT s m) where
   {-# SPECIALIZE instance MonadLazy (CounterT s Identity) #-}
   {-# SPECIALIZE instance MonadLazy (CounterT s (State st)) #-}
-  data Thunk (CounterT s m) t b = Thunk !(STRef s (Either (t b) b))
-  delay a = do
-    s <- liftST $ newSTRef (Left a)
-    pure (Thunk s)
-  value b = do
-    s <- liftST $ newSTRef (Right b)
-    pure (Thunk s)
-  force (Thunk t) = do
-    t' <- liftST $ readSTRef t
-    case t' of
-      Left a -> do
-        b <- step a
-        liftST $ writeSTRef t (Right b)
-        pure b
-      Right b -> pure b
-  lazymatch (Thunk t) f g = do
-    t' <- liftST $ readSTRef t
-    case t' of
-      Right b -> f b
-      Left a -> g a
 
 instance Monad m => MonadCredit (CounterT s m) where
   {-# SPECIALIZE instance MonadCredit (CounterT s Identity) #-}

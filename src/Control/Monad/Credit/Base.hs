@@ -1,12 +1,13 @@
-{-# LANGUAGE DerivingStrategies, TypeFamilies #-}
+{-# LANGUAGE DerivingStrategies, TypeFamilies, LambdaCase #-}
 
 module Control.Monad.Credit.Base
-  ( Cell(..), Credit(..), Ticks(..)
-  , MonadCount(..), MonadLazy(..), MonadCredit(..), HasStep(..), Lazy(..), MonadInherit(..)
+  ( Cell(..), Credit(..), Ticks(..), Thunk
+  , MonadCount(..), MonadUpdate(..), MonadLazy(..), MonadCredit(..), HasStep(..), Lazy(..), MonadInherit(..)
   , MTree(..), Memory(..), MemoryCell(..), MonadMemory(..), linearize, mkMCell, mkMList
   , MemoryStructure(..), ShowCell(..), PrettyCell(..)
   ) where
 
+import Prelude hiding (quot)
 import Control.Monad
 import Control.Monad.State
 import Data.Char
@@ -36,17 +37,46 @@ class Monad m => MonadCount m where
   tick :: m ()
   -- ^ tick consumes one credit of the current cell
 
-class Monad m => MonadLazy m where
-  data Thunk m :: (Type -> Type) -> Type -> Type
+-- | A monad for monotonic updates
+class Monad m => MonadUpdate m where
+  data Quotient m :: Type -> Type
+
+  quot :: a -> m (Quotient m a)
+  -- ^ create a new quotient with the given representative value
+  update :: Quotient m a -> (a -> m a) -> m a
+  -- ^ update the representative of the quotient
+  representative :: Quotient m a -> m a
+  -- ^ retrieve the representative of the quotient
+
+type Thunk m t a = Quotient m (Either (t a) a)
+
+class MonadUpdate m => MonadLazy m where
+  -- | delay creates a new cell with the given thunk
   delay :: t a -> m (Thunk m t a)
-  -- ^ delay creates a new cell with the given thunk
+  delay t = quot (Left t)
+
+  -- | value creates a new cell with the given value
   value :: a -> m (Thunk m t a)
-  -- ^ value creates a new cell with the given value
+  value v = quot (Right v)
+
+  -- | force retrieves and evaluates the thunk of a cell
   force :: HasStep t m => Thunk m t a -> m a
-  -- ^ force retrieves and evaluates the thunk of a cell
-  lazymatch :: Thunk m t a -> (a -> m b) -> (t a -> m b) -> m b
-  -- ^ lazymatch can inspect the unevaluated thunk and allows us to
+  force q = do
+    v <- update q $ \case
+      Left t -> Right <$> step t
+      Right v -> pure $ Right v
+    case v of
+      Left t -> undefined
+      Right v -> pure v
+
+  -- | lazymatch can inspect the unevaluated thunk and allows us to
   -- perform an action like forcing or assigning credits.
+  lazymatch :: Thunk m t a -> (a -> m b) -> (t a -> m b) -> m b
+  lazymatch q onValue onThunk = do
+    r <- representative q
+    case r of
+      Left t -> onThunk t
+      Right v -> onValue v
 
 -- | Thunks can take a step to yield a computation that evaluates to their result.
 class HasStep t m where
@@ -63,13 +93,13 @@ instance HasStep (Lazy m) m where
 -- | A computation in the credit monad has a given amounts of credits,
 -- which it can spend on computation or transfer to other cells.
 class (MonadCount m, MonadLazy m, MonadFail m) => MonadCredit m where
-  creditWith :: Thunk m t a -> Credit -> m ()
+  creditWith :: Quotient m a -> Credit -> m ()
   -- ^ creditWith transfers a given amount of credits to a cell
-  hasAtLeast :: Thunk m t a -> Credit -> m ()
+  hasAtLeast :: Quotient m a -> Credit -> m ()
   -- ^ assert that a cell has at least a given amount of credits
 
 class MonadCredit m => MonadInherit m where
-  creditAllTo :: Thunk m t a -> m ()
+  creditAllTo :: Quotient m a -> m ()
   -- ^ creditAllTo transfers all credits to a cell and assigns it as heir
 
 data MTree = MCell String [MTree] | MList [MTree] (Maybe MTree) | Indirection Cell
@@ -112,10 +142,17 @@ instance Monad m => MemoryCell m (Lazy m a) where
   prettyCell (Lazy _) = pure $ mkMCell "<lazy>" []
 
 class MonadLazy m => MonadMemory m where
-  prettyThunk :: (MemoryCell m a, MemoryCell m (t a)) => Thunk m t a -> m Memory
+  prettyQuotient :: MemoryCell m a => Quotient m a -> m Memory
 
-instance (MonadMemory m, MemoryCell m a, MemoryCell m (t a)) => MemoryCell m (Thunk m t a) where
-  prettyCell t = prettyThunk t
+  prettyThunk :: (MonadMemory m, MemoryCell m a, MemoryCell m (t a)) => Thunk m t a -> m Memory
+  prettyThunk = prettyQuotient
+
+instance (MonadMemory m, MemoryCell m a) => MemoryCell m (Quotient m a) where
+  prettyCell t = prettyQuotient t
+
+instance (MonadMemory m, MemoryCell m a, MemoryCell m b) => MemoryCell m (Either a b) where
+  prettyCell (Left a) = prettyCell a
+  prettyCell (Right b) = prettyCell b
 
 newtype ShowCell a = ShowCell a
   deriving (Eq, Ord, Show)
