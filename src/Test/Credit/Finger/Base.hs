@@ -17,11 +17,23 @@ class (Eq v, Monoid v) => Measured a v where
 instance Measured a v => Measured [a] v where
   measure = mconcat . map measure
 
+instance (Eq v, Monoid v) => Measured () v where
+  measure () = mempty
+
 instance (Measured a v, Measured b v) => Measured (a, b) v where
-  measure (x, y) = measure x <> measure y
+  measure (a, b) = measure a <> measure b
 
 instance (Measured a v, Measured b v, Measured c v) => Measured (a, b, c) v where
-  measure (x, y, z) = measure x <> measure y <> measure z
+  measure (a, b, c) = measure a <> measure b <> measure c
+
+instance (Measured a v, Measured b v, Measured c v, Measured d v) => Measured (a, b, c, d) v where
+  measure (a, b, c, d) = measure a <> measure b <> measure c <> measure d
+
+instance (Measured a v, Measured b v, Measured c v, Measured d v, Measured e v) => Measured (a, b, c, d, e) v where
+  measure (a, b, c, d, e) = measure a <> measure b <> measure c <> measure d <> measure e
+
+instance (Measured a v, Measured b v, Measured c v, Measured d v, Measured e v, Measured f v) => Measured (a, b, c, d, e, f) v where
+  measure (a, b, c, d, e, f) = measure a <> measure b <> measure c <> measure d <> measure e <> measure f
 
 instance (Measured a v, Measured b v) => Measured (Either a b) v where
   measure (Left x) = measure x

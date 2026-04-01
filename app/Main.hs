@@ -23,6 +23,7 @@ import Test.Credit.Deque.Catenable
 import Test.Credit.Deque.SimpleCat
 import Test.Credit.Deque.ImplicitCat
 import Test.Credit.Finger.Base
+import Test.Credit.Finger.FIP
 import Test.Credit.Finger.Original
 import Test.Credit.Finger.Simplified
 import Test.Credit.Heap.Base
@@ -121,6 +122,12 @@ benchmarks args =
       , ("Original Finger Tree (Merge)", run @(BH (FingerHeap Original) Alpha))
       , ("Original Finger Tree (Random Access)", run @(RA (FingerRA Original) Alpha))
       , ("Original Finger Tree (Sortable)", run @(S (FingerSort Original) Alpha))
+      , ("FIP Finger Tree (Deque)", run @(D (FingerDeque FIP) Alpha))
+      -- , ("FIP Finger Tree (Concat)", run @(BD (FingerDeque FIP) Alpha))
+      -- , ("FIP Finger Tree (Heap)", run @(H (FingerHeap FIP) Alpha))
+      -- , ("FIP Finger Tree (Merge)", run @(BH (FingerHeap FIP) Alpha))
+      -- , ("FIP Finger Tree (Random Access)", run @(RA (FingerRA FIP) Alpha))
+      -- , ("FIP Finger Tree (Sortable)", run @(S (FingerSort FIP) Alpha))
       ]
   ]
 
