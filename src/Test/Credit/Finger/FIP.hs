@@ -116,10 +116,31 @@ instance (Measured a v, Measured p v) => Measured (Block a p) v where
 
 type Digit a = Block a (Maybe (Block a ()))
 
+addBlock :: Maybe (Block a ()) -> Block a () -> Digit a
+addBlock m (One () a) = One m a
+addBlock m (Two () a b) = Two m a b
+addBlock m (Three () a b c) = Three m a b c
+
 blockToDigit :: Block a () -> Digit a
-blockToDigit (One () a) = One Nothing a
-blockToDigit (Two () a b) = Two Nothing a b
-blockToDigit (Three () a b c) = Three Nothing a b c
+blockToDigit b = addBlock Nothing b
+
+flipBlock :: Block a () -> Block a ()
+flipBlock (One () a) = One () a
+flipBlock (Two () a b) = Two () b a
+flipBlock (Three () a b c) = Three () c b a
+
+flipDigit :: Digit a -> Digit a
+flipDigit (One m a) = go (One () a) m
+flipDigit (Two m a b) = go (Two () b a) m
+flipDigit (Three m a b c) = go (Three () c b a) m
+
+go b Nothing = blockToDigit b
+go b (Just m) = noThree $ addBlock (Just b) (flipBlock m)
+
+noThree :: Digit a -> Digit a
+noThree (Three (Just (One () d)) a b c) = One (Just (Three () b c d)) a
+noThree (Three (Just (Two () d e)) a b c) = Two (Just (Three () c d e)) a b
+noThree d = d
 
 -- | A digit is unsafe if push or pop can cause it to become empty or overflow.
 isSafe :: Digit a -> Bool
@@ -127,31 +148,42 @@ isSafe (One Nothing _) = False
 isSafe (Two (Just _) _ _) = False
 isSafe _ = True
 
--- -- | Split one block into two: typically requires one allocation.
--- splitBlock2 :: Measured a v => (v -> Bool) -> v -> Block a () -> (Maybe (Block a ()), a, Maybe (Block a ()))
--- splitBlock2 p i (One () a) = (Nothing, a, Nothing)
--- splitBlock2 p i (Two () a b)
-  -- | p (i <> measure a) = (Nothing, a, Just (One () b))
-  -- | otherwise = (Just (One () a), b, Nothing)
--- splitBlock2 p i (Three () a b c)
-  -- | p (i <> measure a) = (Nothing, a, Just (Two () b c))
-  -- | p (i <> measure (a, b)) = (Just (One () a), b, Just (One () c))
-  -- | otherwise = (Just (Two () a b), c)
+splitBlock :: Measured a v => (v -> Bool) -> v -> Block a () -> (Maybe (Block a ()), a, Maybe (Block a ()))
+splitBlock p i (One () a) = (Nothing, a, Nothing)
+splitBlock p i (Two () a b)
+  | p (i <> measure a) = (Nothing, a, Just (One () b))
+  | otherwise = (Just (One () a), b, Nothing)
+splitBlock p i (Three () a b c)
+  | p (i <> measure a) = (Nothing, a, Just (Two () b c))
+  | p (i <> measure (a, b)) = (Just (One () a), b, Just (One () c))
+  | otherwise = (Just (Two () a b), c, Nothing)
 
--- -- | Split one digit into two: typically requires one allocation.
--- splitBlock1 :: Measured a v => (v -> Bool) -> v -> Block a (Block a ()) -> (Maybe (Block a ()), Either (a, Maybe (Digit a)) (Block a ()))
--- splitBlock1 p i (One p a)
-  -- | p (i <> measure a) = (Nothing, Left (a, Nothing))
-  -- | otherwise = (Just (One () a), Right p)
--- splitBlock1 p i (Two p a b)
-  -- | p (i <> measure a) = (Nothing, Left (Two () a b))
-  -- | p (i <> measure (a, b)) = (Just (One () a), Left (One () b))
-  -- | otherwise = (Just (Two () a b), Right ())
--- splitBlock1 p i (Three p a b c)
-  -- | p (i <> measure a) = (Nothing, Left (Three () a b c))
-  -- | p (i <> measure (a, b)) = (Just (One () a), Left (Two () b c))
-  -- | p (i <> measure (a, b, c)) = (Just (Two () a b), Left (One () c))
-  -- | otherwise = (Just (Three () a b c), Right ())
+-- | Split one digit into two: requires one allocation.
+splitDigit :: Measured a v => (v -> Bool) -> v -> Digit a -> (Maybe (Digit a), a, Maybe (Digit a))
+splitDigit p i (One m a)
+  | p (i <> measure a) = (Nothing, a, fmap blockToDigit m)
+  | otherwise = case m of
+      Nothing -> (Nothing, a, fmap blockToDigit m)
+      Just m ->
+        let (l, x, r) = splitBlock p (i <> measure a) m in
+        (Just (One l a), x, fmap blockToDigit r)
+splitDigit p i (Two m a b)
+  | p (i <> measure a) = (Nothing, a, Just (One m b))
+  | p (i <> measure (a, b)) = (Just (One Nothing a), b, fmap blockToDigit m)
+  | otherwise = case m of
+      Nothing -> (Just (One Nothing a), b, fmap blockToDigit m)
+      Just m -> 
+        let (l, x, r) = splitBlock p (i <> measure (a, b)) m in
+        (Just (Two l a b), x, fmap blockToDigit r)
+splitDigit p i (Three m a b c)
+  | p (i <> measure a) = (Nothing, a, Just (Two m b c))
+  | p (i <> measure (a, b)) = (Just (One Nothing a), b, Just (One m c))
+  | p (i <> measure (a, b, c)) = (Just (Two Nothing a b), c, fmap blockToDigit m)
+  | otherwise = case m of
+      Nothing -> (Just (Two Nothing a b), c, fmap blockToDigit m)
+      Just m ->
+        let (l, x, r) = splitBlock p (i <> measure (a, b, c)) m in
+        (Just (Three l a b c), x, fmap blockToDigit r)
 
 -- | Pushing works as follows:
 --   - If a block has less than k elements, it is safe.
@@ -184,10 +216,6 @@ instance Measured a v => Measured (Node v a) v where
   measure (Pair v _ _) = v
   measure (Triple v _ _ _) = v
 
-revNode :: Measured a v => Node v a -> Node v a
-revNode (Pair v a b) = Pair (measure (b, a)) b a
-revNode (Triple v a b c) = Triple (measure (c, b, a)) c b a
-
 nodeToDigit :: Node v a -> Digit a
 nodeToDigit (Pair _ a b) = Two Nothing a b
 nodeToDigit (Triple _ a b c) = Three Nothing a b c
@@ -208,11 +236,11 @@ singleton :: Unit -> a -> Digit a
 singleton _ x = One Nothing x
 
 -- | Push takes a space credit and may return a node
-push :: Measured a v => a -> Digit a -> Unit -> (Digit a, Maybe (Node v a, Unit))
+push :: a -> Digit a -> Unit -> (Digit a, Maybe (Block a (), Unit))
 push x d u = case pushBlock x d u of
   Safe d _ -> (d, Nothing)
   Dangerous d Nothing u -> (blockToDigit d, Nothing)
-  Dangerous d (Just b) u -> (blockToDigit d, Just (blockToNode b, u))
+  Dangerous d (Just b) u -> (blockToDigit d, Just (b, u))
   Full d -> (d, Nothing)
 
 headDigit :: Digit a -> a
@@ -233,12 +261,11 @@ pop d = case popBlock d of
     NowEmpty x Nothing u -> (x, Left u) -- return space credit
     NowEmpty x (Just back) u -> (x, Right (blockToDigit back)) -- could return space credit
 
--- TODO: we call this on both pr and sf, but this does not respect the reversed order of sf
 toTree :: (MonadCredit m, Measured a v) => (Unit, Unit) -> Digit a -> m (FIP v a m)
 toTree (u1, u2) d = case popBlock d of
-  Occupied a d -> deep' mempty (singleton u1 a) vempty d u2
+  Occupied a d -> deep' mempty (singleton u1 a) vempty (flipDigit d) u2
   NowEmpty a Nothing u3 -> pure $ Single a
-  NowEmpty a (Just back) u3 -> deep' mempty (singleton u1 a) vempty (blockToDigit back) u2
+  NowEmpty a (Just back) u3 -> deep' mempty (singleton u1 a) vempty (blockToDigit (flipBlock back)) u2
 
 -- | Pad all to four elements
 data FIP v a m
@@ -278,7 +305,7 @@ instance F.FingerTree FIP where
   init = init
 
   concat q1 q2 = fail "concat not implemented" -- glue q1 [] q2
-  splitTree _ _ _ = fail "splitTree not implemented" -- splitTree
+  splitTree = splitTree
   treeToList q = treeToListAcc [] (\x -> [x]) q
 
 -- Amortization idea:
@@ -332,7 +359,8 @@ cons u1 a q = do
         (pr', Nothing) -> do
           m `creditWith` 1
           deep vm pr' m sf u1
-        (pr', Just (node, u)) -> do
+        (pr', Just (b, u)) -> do
+          let node = blockToNode b
           m' <- delay $ FCons node m -- at u
           if isSafe sf
             then m  `creditWith` 1
@@ -380,10 +408,10 @@ deepL (u1, u2) Nothing _ m sf = do
   let mt = measureTail m'
   m'' <- uncons m'
   case m'' of
-    Nothing -> toTree (u1, u2) sf
+    Nothing -> toTree (u1, u2) (flipDigit sf)
     Just (h, t) -> do -- h is safe
       unless (isSafe sf) $ t `creditWith` 1
-      deep mt (nodeToDigit h) t sf u2
+      deep mt (nodeToDigit h) t sf u1
 deepL (u1, _) (Just pr) vm m sf = deep vm pr m sf u1
 
 -- | FIP if it takes its argument as borrowed and returns int
@@ -408,8 +436,9 @@ snoc u1 q e = do
         (sf', Nothing) -> do
           m `creditWith` 1
           deep vm pr m sf' u1
-        (sf', Just (node, u)) -> do
-          t <- delay $ FSnoc m (revNode node) -- at u
+        (sf', Just (b, u)) -> do
+          let node = blockToNode (flipBlock b)
+          t <- delay $ FSnoc m node -- at u
           if isSafe pr
             then m `creditWith` 1
             else t `creditWith` 1
@@ -459,7 +488,7 @@ deepR (u1, u2) pr _ m Nothing = do
     Nothing -> toTree (u1, u2) pr
     Just (t, l) -> do -- l is safe
       unless (isSafe pr) $ t `creditWith` 1
-      deep mi pr t (nodeToDigit (revNode l)) u2
+      deep mi pr t (flipDigit (nodeToDigit l)) u2
 deepR (u1, _) s vm m (Just sf) = deep vm s m sf u1
 
 measureInit :: Measured a v
@@ -505,27 +534,35 @@ measureInit q = case q of
   -- q <- glue q1 (toNodes (v1 ++ as ++ u2)) q2
   -- deep' (measure q) u1 (value q) v2 -- from first Deep
 
--- -- | 'Split' should be padded to size k
--- splitTree :: (MonadCredit m, Measured a v) => (v -> Bool) -> v -> FIP v a m -> m (Split FIP v a m)
--- splitTree p i Empty = fail "splitTree: empty tree"
--- splitTree p i (Single x) = pure $ Split Empty x Empty -- from Single
--- splitTree p i (Deep vm pr m sf) = do
-  -- tick
-  -- m `creditWith` 2
-  -- let vpr = i <> measure pr
-  -- let vprm = vpr <> vm
-  -- if p vpr then do
-    -- let (l, x, r) = splitDigit p i pr
-    -- Split <$> toTree (Unit, Unit) l <*> pure x <*> deepL (Unit, Unit) r vm m sf
-  -- else if p vprm then do
-    -- Split ml xs mr <- splitTree p vpr =<< force m
-    -- let vml = measure ml
-    -- let (l, x, r) = splitDigit p (vpr <> vml) (toDigit xs)
-    -- [ml', mr'] <- mapM value [ml, mr]
-    -- Split <$> deepR pr vml ml' l <*> pure x <*> deepL r (measure mr) mr' sf
-  -- else do
-    -- let (l, x, r) = splitDigit p vprm sf
-    -- Split <$> deepR pr vm m l <*> pure x <*> toTree r
+mtoTree :: (MonadCredit m, Measured a v) => (Unit, Unit) -> Maybe (Digit a) -> m (FIP v a m)
+mtoTree (u1, u2) (Just d) = toTree (u1, u2) d
+mtoTree _ Nothing = pure Empty
+
+-- | Requires two allocations per recursive call: to split the digit and to create the new Deep node.
+-- Our analysis is a bit imprecise and allows for two more allocations in toTree (called by deepL).
+splitTree :: (MonadCredit m, Measured a v) => (v -> Bool) -> v -> FIP v a m -> m (Split FIP v a m)
+splitTree p i Empty = fail "splitTree: empty tree"
+splitTree p i (Single x) = pure $ Split Empty x Empty -- from Single
+splitTree p i (Deep vm pr m sf) = do
+  tick
+  m `creditWith` 2
+  let vpr = i <> measure pr
+  let vprm = vpr <> vm
+  let us = (Unit, Unit)
+  if p vpr then do
+    let (l, x, r) = splitDigit p i pr
+    ml <- vempty
+    Split <$> mtoTree us l <*> pure x <*> deepL us r vm m sf
+  else if p vprm then do
+    Split ml xs mr <- splitTree p vpr =<< force m
+    [ml', mr'] <- mapM value [ml, mr]
+    let (vml, vmr) = (measure ml, measure mr)
+    let (l, x, r) = splitDigit p (vpr <> vml) (nodeToDigit xs)
+    Split <$> deepR us pr vml ml' (fmap flipDigit l) <*> pure x <*> deepL us r vmr mr' sf
+  else do
+    let (l, x, r) = splitDigit p vprm (flipDigit sf)
+    mr <- vempty
+    Split <$> deepR us pr vm m (fmap flipDigit l) <*> pure x <*> mtoTree us r
 
 append :: MonadCredit m => [a] -> [a] -> m [a]
 append [] ys = pure ys

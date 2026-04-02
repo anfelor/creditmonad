@@ -195,7 +195,7 @@ tests args =
       -- , ("FIP Finger Tree (Concat)", test @(BD (FingerDeque FIP) Alpha))
       -- , ("FIP Finger Tree (Heap)", test @(H (FingerHeap FIP) Alpha))
       -- , ("FIP Finger Tree (Merge)", test @(BH (FingerHeap FIP) Alpha))
-      -- , ("FIP Finger Tree (Random Access)", test @(RA (FingerRA FIP) Alpha))
+      , ("FIP Finger Tree (Random Access)", test @(RA (FingerRA FIP) Alpha))
       -- , ("FIP Finger Tree (Sortable)", test @(S (FingerSort FIP) Alpha))
       ]
   ]
