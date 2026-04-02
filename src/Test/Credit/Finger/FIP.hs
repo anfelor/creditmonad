@@ -110,9 +110,9 @@ data Block a p = One p a | Two p a a | Three p a a a
   deriving (Eq, Ord, Show)
 
 instance (Measured a v, Measured p v) => Measured (Block a p) v where
-  measure (One p a) = measure (p, a)
-  measure (Two p a b) = measure (p, a, b)
-  measure (Three p a b c) = measure (p, a, b, c)
+  measure (One p a) = measure (a, p)
+  measure (Two p a b) = measure (a, b, p)
+  measure (Three p a b c) = measure (a, b, c, p)
 
 type Digit a = Block a (Maybe (Block a ()))
 
@@ -124,23 +124,26 @@ addBlock m (Three () a b c) = Three m a b c
 blockToDigit :: Block a () -> Digit a
 blockToDigit b = addBlock Nothing b
 
+digitToBlock :: Digit a -> (Block a (), Maybe (Block a ()))
+digitToBlock (One m a) = (One () a, m)
+digitToBlock (Two m a b) = (Two () a b, m)
+digitToBlock (Three m a b c) = (Three () a b c, m)
+
 flipBlock :: Block a () -> Block a ()
 flipBlock (One () a) = One () a
 flipBlock (Two () a b) = Two () b a
 flipBlock (Three () a b c) = Three () c b a
 
 flipDigit :: Digit a -> Digit a
-flipDigit (One m a) = go (One () a) m
-flipDigit (Two m a b) = go (Two () b a) m
-flipDigit (Three m a b c) = go (Three () c b a) m
+flipDigit d = let (b, m) = digitToBlock d in go (flipBlock b) m
+  where
+    go b Nothing = blockToDigit b
+    go b (Just m) = noThree $ addBlock (Just b) (flipBlock m)
 
-go b Nothing = blockToDigit b
-go b (Just m) = noThree $ addBlock (Just b) (flipBlock m)
-
-noThree :: Digit a -> Digit a
-noThree (Three (Just (One () d)) a b c) = One (Just (Three () b c d)) a
-noThree (Three (Just (Two () d e)) a b c) = Two (Just (Three () c d e)) a b
-noThree d = d
+    noThree :: Digit a -> Digit a
+    noThree (Three (Just (One () d)) a b c) = One (Just (Three () b c d)) a
+    noThree (Three (Just (Two () d e)) a b c) = Two (Just (Three () c d e)) a b
+    noThree d = d
 
 -- | A digit is unsafe if push or pop can cause it to become empty or overflow.
 isSafe :: Digit a -> Bool
@@ -160,30 +163,15 @@ splitBlock p i (Three () a b c)
 
 -- | Split one digit into two: requires one allocation.
 splitDigit :: Measured a v => (v -> Bool) -> v -> Digit a -> (Maybe (Digit a), a, Maybe (Digit a))
-splitDigit p i (One m a)
-  | p (i <> measure a) = (Nothing, a, fmap blockToDigit m)
-  | otherwise = case m of
-      Nothing -> (Nothing, a, fmap blockToDigit m)
-      Just m ->
-        let (l, x, r) = splitBlock p (i <> measure a) m in
-        (Just (One l a), x, fmap blockToDigit r)
-splitDigit p i (Two m a b)
-  | p (i <> measure a) = (Nothing, a, Just (One m b))
-  | p (i <> measure (a, b)) = (Just (One Nothing a), b, fmap blockToDigit m)
-  | otherwise = case m of
-      Nothing -> (Just (One Nothing a), b, fmap blockToDigit m)
-      Just m -> 
-        let (l, x, r) = splitBlock p (i <> measure (a, b)) m in
-        (Just (Two l a b), x, fmap blockToDigit r)
-splitDigit p i (Three m a b c)
-  | p (i <> measure a) = (Nothing, a, Just (Two m b c))
-  | p (i <> measure (a, b)) = (Just (One Nothing a), b, Just (One m c))
-  | p (i <> measure (a, b, c)) = (Just (Two Nothing a b), c, fmap blockToDigit m)
-  | otherwise = case m of
-      Nothing -> (Just (Two Nothing a b), c, fmap blockToDigit m)
-      Just m ->
-        let (l, x, r) = splitBlock p (i <> measure (a, b, c)) m in
-        (Just (Three l a b c), x, fmap blockToDigit r)
+splitDigit p i d =
+  let (b, m) = digitToBlock d in
+  case (m, p (i <> measure b)) of
+    (Just m, False) ->
+      let (l, x, r) = splitBlock p (i <> measure b) m in
+      (Just (addBlock l b), x, fmap blockToDigit r)
+    (m, _) ->
+      let (l, x, r) = splitBlock p i b in
+      (fmap blockToDigit l, x, fmap (addBlock m) r)
 
 -- | Pushing works as follows:
 --   - If a block has less than k elements, it is safe.
