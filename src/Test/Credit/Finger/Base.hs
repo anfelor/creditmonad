@@ -210,16 +210,17 @@ instance FingerTree f => RA.RandomAccess (FingerRA f) where
     if isEmpty xs
       then pure Nothing
       else do
-        Split _ (Elem x) _ <- splitTree (fromIntegral i <) 0 xs
-        pure $ Just x
+        if fromIntegral i >= len (FingerRA xs)
+          then pure Nothing
+          else do
+            Split _ (Elem x) _ <- splitTree (fromIntegral i <) 0 xs
+            pure $ Just x
   update i a (FingerRA xs) =
     if isEmpty xs
       then pure $ FingerRA empty
       else do
         Split l (Elem x) r <- splitTree (fromIntegral i <) 0 xs
-        if fromIntegral i > len (FingerRA l)
-          then FingerRA <$> snoc l (Elem a)
-          else FingerRA <$> (concat l =<< cons (Elem a) r)
+        FingerRA <$> (concat l =<< cons (Elem a) r)
 
 instance BoundedFingerTree f => RA.BoundedRandomAccess (FingerRA f) where
   qcost n (RA.Cons _) = fcost @f n Cons

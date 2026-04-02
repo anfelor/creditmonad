@@ -2,7 +2,9 @@
 
 module Test.Credit.Sortable.Base where
 
+import Control.Monad
 import Control.Monad.Credit
+import qualified Data.List
 import Test.Credit
 import Test.QuickCheck
 
@@ -38,3 +40,11 @@ instance (Arbitrary a, Ord a, BoundedSortable q, Show a) => DataStructure (S q a
   perform sz (S q) Sort = do
     _ <- sort q
     pure (sz, S q)
+  test = forAll (listOf (arbitrary :: Gen a)) $ \xs ->
+    let m = runCounterM $ do
+          q0 <- empty @q
+          q1 <- foldM (flip add) q0 xs
+          sort q1
+    in case m of
+      Left e -> counterexample ("Error: " ++ e) False
+      Right (as, _) -> as === Data.List.sort xs

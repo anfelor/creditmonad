@@ -3,10 +3,12 @@
 module Main where
 
 import UnliftIO.Internals.Async
+import UnliftIO.MVar (newMVar, withMVar)
 import System.Environment (getArgs)
 import Test.QuickCheck
 import Prettyprinter
 
+import Control.Monad
 import Control.Monad.Credit
 import Test.Credit
 import Test.Credit.Queue.Base
@@ -131,6 +133,71 @@ benchmarks args =
       ]
   ]
 
+tests :: Args -> [(String, IO Result)]
+tests args =
+  [ (testName ++ ":", quickCheckWithResult args testProp)
+  | (testName, testProp) <- reverse
+      [ ("Batched Queue", test @(Q Batched Alpha))
+      , ("Pairing Heap", test @(H Pairing Alpha))
+      , ("Pairing Heap (Merge)", test @(BH Pairing Alpha))
+      , ("RoundRobin Heap", test @(H RoundRobin Alpha))
+      , ("RoundRobin Heap (Merge)", test @(BH RoundRobin Alpha))
+      ]
+  ] ++
+  [ (testName ++ ":", quickCheckWithResult args testProp)
+  | (testName, testProp) <- reverse
+      [ ("Bankers Queue", test @(Q BQueue Alpha))
+      , ("Physicists Queue", test @(Q Physicists Alpha))
+      , ("Realtime Queue", test @(Q RQueue Alpha))
+      , ("Bootstrapped Queue", test @(Q Bootstrapped Alpha))
+      , ("Implicit Queue", test @(Q Implicit Alpha))
+      , ("Bankers Deque", test @(D BDeque Alpha))
+      , ("Realtime Deque", test @(D RDeque Alpha))
+      -- , ("Catenable List", test @(D CatDeque Alpha))
+      , ("Simple Catenable Deque", test @(D SimpleCat Alpha))
+      , ("Implicit Catenable Deque", test @(D ImplicitCat Alpha))
+      -- , ("Catenable List (Concat)", test @(BD CatDeque Alpha))
+      , ("Simple Catenable Deque (Concat)", test @(BD SimpleCat Alpha))
+      , ("Implicit Catenable Deque (Concat)", test @(BD ImplicitCat Alpha))
+      , ("Binomial Heap", test @(H Binomial Alpha))
+      , ("ZBinomial Heap", test @(H ZBinomial Alpha))
+      , ("Lazy Pairing Heap", test @(H LazyPairing Alpha))
+      , ("FIP Lazy Pairing Heap", test @(H LazyPairingFIP Alpha))
+      , ("Scheduled Binomial Heap", test @(H Scheduled Alpha))
+      , ("Maxiphobic Heap", test @(H Maxiphobic Alpha))
+      , ("Skew Heap", test @(H Skew Alpha))
+      , ("Binomial Heap (Merge)", test @(BH Binomial Alpha))
+      , ("ZBinomial Heap (Merge)", test @(BH ZBinomial Alpha))
+      , ("Lazy Pairing Heap (Merge)", test @(BH LazyPairing Alpha))
+      , ("FIP Lazy Pairing Heap (Merge)", test @(BH LazyPairingFIP Alpha))
+      , ("Scheduled Binomial Heap (Merge)", test @(BH Scheduled Alpha))
+      , ("Maxiphobic Heap (Merge)", test @(BH Maxiphobic Alpha))
+      , ("Skew Heap (Merge)", test @(BH Skew Alpha))
+      , ("Mergesort", test @(S MergeSort Alpha))
+      , ("Scheduled Mergesort", test @(S SMergeSort Alpha))
+      , ("Binary Random Access List", test @(RA BinaryRA Alpha))
+      , ("Zeroless Random Access List", test @(RA ZerolessRA Alpha))
+      , ("Simplified Finger Tree (Deque)", test @(D (FingerDeque Simplified) Alpha))
+      , ("Simplified Finger Tree (Concat)", test @(BD (FingerDeque Simplified) Alpha))
+      , ("Simplified Finger Tree (Heap)", test @(H (FingerHeap Simplified) Alpha))
+      , ("Simplified Finger Tree (Merge)", test @(BH (FingerHeap Simplified) Alpha))
+      , ("Simplified Finger Tree (Random Access)", test @(RA (FingerRA Simplified) Alpha))
+      , ("Simplified Finger Tree (Sortable)", test @(S (FingerSort Simplified) Alpha))
+      , ("Original Finger Tree (Deque)", test @(D (FingerDeque Original) Alpha))
+      , ("Original Finger Tree (Concat)", test @(BD (FingerDeque Original) Alpha))
+      , ("Original Finger Tree (Heap)", test @(H (FingerHeap Original) Alpha))
+      , ("Original Finger Tree (Merge)", test @(BH (FingerHeap Original) Alpha))
+      , ("Original Finger Tree (Random Access)", test @(RA (FingerRA Original) Alpha))
+      , ("Original Finger Tree (Sortable)", test @(S (FingerSort Original) Alpha))
+      , ("FIP Finger Tree (Deque)", test @(D (FingerDeque FIP) Alpha))
+      -- , ("FIP Finger Tree (Concat)", test @(BD (FingerDeque FIP) Alpha))
+      -- , ("FIP Finger Tree (Heap)", test @(H (FingerHeap FIP) Alpha))
+      -- , ("FIP Finger Tree (Merge)", test @(BH (FingerHeap FIP) Alpha))
+      -- , ("FIP Finger Tree (Random Access)", test @(RA (FingerRA FIP) Alpha))
+      -- , ("FIP Finger Tree (Sortable)", test @(S (FingerSort FIP) Alpha))
+      ]
+  ]
+
 main :: IO ()
 main = do
   (maxSuccess, maxSize) <- do
@@ -140,9 +207,11 @@ main = do
       [n]       -> pure (read n, 1000)
       _         -> pure (1000,   1000)
   let args = stdArgs { maxSuccess, maxSize, maxShrinks = maxBound, chatty = False }
-  pooledForConcurrently_ (benchmarks args) $ \(s,r) -> do
+  consoleLock <- newMVar ()
+  pooledForConcurrently_ (tests args ++ benchmarks args) $ \(s,r) -> do
     res <- r
-    putStrLn $ s ++ "\n" ++ output res
+    unless (isSuccess res) $
+      withMVar consoleLock $ const $ putStrLn $ s ++ "\n" ++ output res
 
 -- Categorization of implementations:
 

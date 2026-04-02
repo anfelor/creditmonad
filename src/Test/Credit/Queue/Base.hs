@@ -2,6 +2,7 @@
 
 module Test.Credit.Queue.Base where
 
+import Control.Monad
 import Control.Monad.Credit
 import Test.Credit
 import Test.QuickCheck
@@ -28,7 +29,7 @@ data Q q a m = Q (q (PrettyCell a) m)
 instance (MemoryStructure (q (PrettyCell a))) => MemoryStructure (Q q a) where
   prettyStructure (Q q) = prettyStructure q
 
-instance (Arbitrary a, BoundedQueue q, Show a) => DataStructure (Q q a) (QueueOp a) where
+instance (Arbitrary a, Eq a, Show a, BoundedQueue q) => DataStructure (Q q a) (QueueOp a) where
   cost = qcost @q
   create = Q <$> empty
   perform sz (Q q) (Snoc x) = (sz + 1,) <$> Q <$> snoc q (PrettyCell x)
@@ -38,3 +39,16 @@ instance (Arbitrary a, BoundedQueue q, Show a) => DataStructure (Q q a) (QueueOp
       Nothing -> empty
       Just (_, q') -> pure q'
     pure (max 0 (sz - 1), Q q')
+  test = forAll (listOf (arbitrary :: Gen a)) $ \xs ->
+    let m = runCounterM $ do
+          q0 <- empty @q
+          q1 <- foldM snoc q0 xs
+          let unconsAll q = do
+                m <- uncons q
+                case m of
+                  Nothing -> pure []
+                  Just (x, q') -> (x :) <$> unconsAll q'
+          unconsAll q1
+    in case m of
+      Left e -> counterexample ("Error: " ++ e) False
+      Right (as, _) -> as === xs

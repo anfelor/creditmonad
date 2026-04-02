@@ -118,6 +118,7 @@ class (Arbitrary op, Show op) => DataStructure t op | t -> op where
   -- We allow the size to depend on the internal state of the data structure,
   -- since some operations, like insertions into a binary search tree, might
   -- return different sizes depending on whether a new element is already present.
+  test :: Property
 
 -- | Evaluate an execution trace of operations on the given data structure
 -- using the credit monad. Returns either an error or unit if the evaluation succeeded.

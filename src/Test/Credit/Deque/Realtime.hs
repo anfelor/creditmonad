@@ -57,10 +57,14 @@ instance Deque RDeque where
     rdeque (RDeque lenf f sf (lenr + 1) (SCons x r) sr)
   uncons (RDeque lenf f sf lenr r sr) = exec2 sf >>= \sf -> exec2 sr >>= \sr -> smatch f
     (\x f -> rdeque (RDeque (lenf - 1) f sf lenr r sr) >>= \q -> pure $ Just (x, q))
-    (pure Nothing)
+    (smatch r
+      (\x _ -> empty >>= \q -> pure $ Just (x, q))
+      (pure Nothing))
   unsnoc (RDeque lenf f sf lenr r sr) = exec2 sf >>= \sf -> exec2 sr >>= \sr -> smatch r
     (\x r -> rdeque (RDeque lenf f sf (lenr - 1) r sr) >>= \q -> pure $ Just (q, x))
-    (pure Nothing)
+    (smatch f
+      (\x _ -> empty >>= \q -> pure $ Just (q, x))
+      (pure Nothing))
   concat = undefined
 
 instance BoundedDeque RDeque where

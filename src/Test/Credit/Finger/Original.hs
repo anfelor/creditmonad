@@ -282,23 +282,19 @@ splitTree p i (Deep vm pr m sf) = do
     let (l, x, r) = splitDigit p vprm sf
     Split <$> deepR pr vm m l <*> pure x <*> toTree r
 
-rev :: MonadCredit m => [a] -> [a] -> m [a]
-rev [] acc = pure acc
-rev (x : xs) acc = tick >> rev xs (x : acc) 
-
 append :: MonadCredit m => [a] -> [a] -> m [a]
 append [] ys = pure ys
 append (x : xs) ys = tick >> fmap (x:) (append xs ys)
 
 treeToListAcc :: MonadCredit m => [b] -> (a -> [b]) -> Original v a m -> m [b]
-treeToListAcc acc f Empty = rev acc []
-treeToListAcc acc f (Single x) = do
-  flip rev [] =<< append (f x) acc
+treeToListAcc acc f Empty = pure acc
+treeToListAcc acc f (Single x) = append (f x) acc
 treeToListAcc acc f (Deep _ s q u) = do
   let s' = concatMap f s
   let u' = concatMap f u
+  acc' <- append u' acc
   creditWith q 2
-  q' <- treeToListAcc (u' ++ acc) (concatMap f . toDigit) =<< force q
+  q' <- treeToListAcc acc' (concatMap f . toDigit) =<< force q
   append s' q'
 
 instance MemoryCell m a => MemoryCell m (Node v a) where

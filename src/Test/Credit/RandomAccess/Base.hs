@@ -3,6 +3,7 @@
 module Test.Credit.RandomAccess.Base where
 
 import Prelude hiding (lookup)
+import Control.Monad
 import Control.Monad.Credit hiding (update)
 import Test.Credit
 import Test.QuickCheck
@@ -44,7 +45,7 @@ norm sz (Lookup i) = Lookup (idx i sz)
 norm sz (Update i a) = Update (idx i sz) a
 norm _ op = op
 
-instance (Arbitrary a, BoundedRandomAccess q, Show a) => DataStructure (RA q a) (RandomAccessOp a) where
+instance (Arbitrary a, Eq a, BoundedRandomAccess q, Show a) => DataStructure (RA q a) (RandomAccessOp a) where
   cost sz op = qcost @q sz (norm sz op)
   create = RA <$> empty
   perform sz (RA q) (Cons x) = (sz + 1,) <$> RA <$> cons (PrettyCell x) q
@@ -58,3 +59,29 @@ instance (Arbitrary a, BoundedRandomAccess q, Show a) => DataStructure (RA q a) 
     _ <- lookup (idx i sz) q
     pure $ (sz, RA q)
   perform sz (RA q) (Update i a) = (sz,) <$> RA <$> update (idx i sz) (PrettyCell a) q
+  test = (forAll (listOf (arbitrary :: Gen a)) $ \xs ->
+    let m = runCounterM $ do
+          q0 <- empty @q
+          q1 <- foldM (flip cons) q0 xs
+          let unconsAll q = do
+                m <- uncons q
+                case m of
+                  Nothing -> pure []
+                  Just (x, q') -> (x :) <$> unconsAll q'
+          unconsAll q1
+    in case m of
+      Left e -> counterexample ("Error: " ++ e) False
+      Right (as, _) -> as === reverse xs)
+    .&. (forAll (listOf (arbitrary :: Gen a)) $ \xs ->
+    let m = runCounterM $ do
+          q0 <- empty @q
+          q1 <- foldM (flip cons) q0 xs
+          let lookupAll i q = do
+                m <- lookup i q
+                case m of
+                  Nothing -> pure []
+                  Just x -> (x :) <$> lookupAll (i + 1) q
+          lookupAll 0 q1
+    in case m of
+      Left e -> counterexample ("Error: " ++ e) False
+      Right (as, _) -> as === reverse xs)

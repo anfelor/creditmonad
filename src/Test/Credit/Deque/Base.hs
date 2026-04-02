@@ -3,6 +3,7 @@
 module Test.Credit.Deque.Base (DequeOp(..), Deque(..), BoundedDeque(..), D, BD) where
 
 import Prelude hiding (concat)
+import Control.Monad
 import Control.Monad.Credit
 import Test.Credit
 import Test.QuickCheck
@@ -39,7 +40,7 @@ instance (MemoryStructure (q (PrettyCell a))) => MemoryStructure (D q a) where
   prettyStructure (D q) = prettyStructure q
 
 
-instance (Arbitrary a, BoundedDeque q, Show a) => DataStructure (D q a) (DequeOp a) where
+instance (Arbitrary a, Eq a, Show a, BoundedDeque q) => DataStructure (D q a) (DequeOp a) where
   cost _ Concat = 0
   cost sz op = qcost @q sz op
   create = D <$> empty
@@ -56,6 +57,32 @@ instance (Arbitrary a, BoundedDeque q, Show a) => DataStructure (D q a) (DequeOp
       Nothing -> (sz,) <$> D <$> empty
       Just (q', _) -> pure (sz - 1, D q')
   perform sz (D q) Concat = pure $ (sz, D q) -- no op
+  test = (forAll (listOf (arbitrary :: Gen a)) $ \xs ->
+    let m = runCounterM $ do
+          q0 <- empty @q
+          q1 <- foldM snoc q0 xs
+          let unconsAll q = do
+                m <- uncons q
+                case m of
+                  Nothing -> pure []
+                  Just (x, q') -> (x :) <$> unconsAll q'
+          unconsAll q1
+    in case m of
+      Right (as, _) -> as === xs
+      Left e -> counterexample ("Error: " ++ e) False)
+    .&. (forAll (listOf (arbitrary :: Gen a)) $ \xs ->
+    let m = runCounterM $ do
+          q0 <- empty @q
+          q1 <- foldM (flip cons) q0 xs
+          let unsnocAll q = do
+                m <- unsnoc q
+                case m of
+                  Nothing -> pure []
+                  Just (q', x) -> (x :) <$> unsnocAll q'
+          unsnocAll q1
+    in case m of
+      Right (as, _) -> as === xs
+      Left e -> counterexample ("Error: " ++ e) False)
 
 data BD q a m = BD (D q a m) (D q a m)
 
@@ -71,7 +98,7 @@ instance (MemoryStructure (q (PrettyCell a))) => MemoryStructure (BD q a) where
     q2' <- prettyStructure q2
     pure $ mkMCell "Concat" [q1', q2']
 
-instance (Arbitrary a, BoundedDeque q, Show a) => DataStructure (BD q a) (DequeOp a) where
+instance (Arbitrary a, Eq a, Show a, BoundedDeque q) => DataStructure (BD q a) (DequeOp a) where
   cost = qcost @q
   create = do
     q1 <- empty
@@ -93,3 +120,18 @@ instance (Arbitrary a, BoundedDeque q, Show a) => DataStructure (BD q a) (DequeO
     e <- empty
     q <- concat q1 q2
     pure (sz, BD (D e) (D q))
+  test = forAll ((,) <$> listOf (arbitrary :: Gen a) <*> listOf (arbitrary :: Gen a)) $ \(xs, ys) ->
+    let m = runCounterM $ do
+          q0 <- empty @q
+          q1 <- foldM snoc q0 xs
+          q2 <- foldM snoc q0 ys
+          q <- concat q1 q2
+          let unconsAll q = do
+                m <- uncons q
+                case m of
+                  Nothing -> pure []
+                  Just (x, q') -> (x :) <$> unconsAll q'
+          unconsAll q
+    in case m of
+      Left e -> counterexample ("Error: " ++ e) False
+      Right (as, _) -> as === (xs ++ ys)

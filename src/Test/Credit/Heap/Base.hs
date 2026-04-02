@@ -2,7 +2,9 @@
 
 module Test.Credit.Heap.Base (HeapOp(..), Heap(..), BoundedHeap(..), H, BH) where
 
+import Control.Monad
 import Control.Monad.Credit
+import qualified Data.List
 import Test.Credit
 import Test.QuickCheck
 
@@ -44,6 +46,19 @@ instance (Arbitrary a, Ord a, BoundedHeap h, Show a) => DataStructure (H h a) (H
     case m of
       Nothing -> (sz,) <$> H <$> empty
       Just (_, h') -> pure (sz - 1, H h')
+  test = forAll (listOf (arbitrary :: Gen a)) $ \xs ->
+    let m = runCounterM $ do
+          q0 <- empty @h
+          q1 <- foldM (flip insert) q0 xs
+          let splitAll q = do
+                m <- splitMin q
+                case m of
+                  Nothing -> pure []
+                  Just (x, q') -> (x :) <$> splitAll q'
+          splitAll q1
+    in case m of
+      Left e -> counterexample ("Error: " ++ e) False
+      Right (as, _) -> as === Data.List.sort xs
 
 data BH h a m = BH (H h a m) (H h a m)
 
@@ -75,3 +90,18 @@ instance (Arbitrary a, Ord a, BoundedHeap h, Show a) => DataStructure (BH h a) (
     h <- merge h1 h2
     e <- empty
     pure (sz, BH (H e) (H h))
+  test = forAll ((,) <$> listOf (arbitrary :: Gen a) <*> listOf (arbitrary :: Gen a)) $ \(xs, ys) ->
+    let m = runCounterM $ do
+          q0 <- empty @h
+          q1 <- foldM (flip insert) q0 xs
+          q2 <- foldM (flip insert) q0 ys
+          q <- merge q1 q2
+          let splitAll q = do
+                m <- splitMin q
+                case m of
+                  Nothing -> pure []
+                  Just (x, q') -> (x :) <$> splitAll q'
+          splitAll q
+    in case m of
+      Left e -> counterexample ("Error: " ++ e) False
+      Right (as, _) -> as === Data.List.sort (xs ++ ys)

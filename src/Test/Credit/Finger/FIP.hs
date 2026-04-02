@@ -233,6 +233,7 @@ pop d = case popBlock d of
     NowEmpty x Nothing u -> (x, Left u) -- return space credit
     NowEmpty x (Just back) u -> (x, Right (blockToDigit back)) -- could return space credit
 
+-- TODO: we call this on both pr and sf, but this does not respect the reversed order of sf
 toTree :: (MonadCredit m, Measured a v) => (Unit, Unit) -> Digit a -> m (FIP v a m)
 toTree (u1, u2) d = case popBlock d of
   Occupied a d -> deep' mempty (singleton u1 a) vempty d u2
@@ -276,9 +277,9 @@ instance F.FingerTree FIP where
   last = last
   init = init
 
-  concat q1 q2 = undefined -- glue q1 [] q2
-  splitTree = undefined -- splitTree
-  treeToList q = undefined -- treeToListAcc [] (\x -> [x]) q
+  concat q1 q2 = fail "concat not implemented" -- glue q1 [] q2
+  splitTree _ _ _ = fail "splitTree not implemented" -- splitTree
+  treeToList q = treeToListAcc [] (\x -> [x]) q
 
 -- Amortization idea:
 --  - FCons and FSnoc both cost two credits
@@ -526,24 +527,34 @@ measureInit q = case q of
     -- let (l, x, r) = splitDigit p vprm sf
     -- Split <$> deepR pr vm m l <*> pure x <*> toTree r
 
--- rev :: MonadCredit m => [a] -> [a] -> m [a]
--- rev [] acc = pure acc
--- rev (x : xs) acc = tick >> rev xs (x : acc) 
+append :: MonadCredit m => [a] -> [a] -> m [a]
+append [] ys = pure ys
+append (x : xs) ys = tick >> fmap (x:) (append xs ys)
 
--- append :: MonadCredit m => [a] -> [a] -> m [a]
--- append [] ys = pure ys
--- append (x : xs) ys = tick >> fmap (x:) (append xs ys)
+blockToList :: Block a () -> [a]
+blockToList (One () a) = [a]
+blockToList (Two () a b) = [a, b]
+blockToList (Three () a b c) = [a, b, c]
 
--- treeToListAcc :: MonadCredit m => [b] -> (a -> [b]) -> FIP v a m -> m [b]
--- treeToListAcc acc f Empty = rev acc []
--- treeToListAcc acc f (Single x) = do
-  -- flip rev [] =<< append (f x) acc
--- treeToListAcc acc f (Deep _ s q u) = do
-  -- let s' = concatMap f s
-  -- let u' = concatMap f u
-  -- creditWith q 2
-  -- q' <- treeToListAcc (u' ++ acc) (concatMap f . toDigit) =<< force q
-  -- append s' q'
+digitToList :: Digit a -> [a]
+digitToList (One p a) = [a] ++ maybe [] blockToList p
+digitToList (Two p a b) = [a, b] ++ maybe [] blockToList p
+digitToList (Three p a b c) = [a, b, c] ++ maybe [] blockToList p
+
+nodeToList :: Node v a -> [a]
+nodeToList (Pair _ a b) = [a, b]
+nodeToList (Triple _ a b c) = [a, b, c]
+
+treeToListAcc :: MonadCredit m => [b] -> (a -> [b]) -> FIP v a m -> m [b]
+treeToListAcc acc f Empty = pure acc
+treeToListAcc acc f (Single x) = append (f x) acc
+treeToListAcc acc f (Deep _ pr m sf) = do
+  let pr' = concatMap f $ digitToList pr
+  let sf' = concatMap f $ reverse $ digitToList sf
+  acc' <- append sf' acc
+  creditWith m 2
+  m' <- treeToListAcc acc' (concatMap f . nodeToList) =<< force m
+  append pr' m'
 
 instance (MemoryCell m a, MemoryCell m p) => MemoryCell m (Block a p) where
   prettyCell (One p a) = do

@@ -9,7 +9,7 @@ import Test.Credit.Queue.Base
 
 app :: MonadCredit m => [a] -> [a] -> m [a]
 app [] ys = pure ys
-app (x : xs) ys = tick >> app xs (x : ys)
+app (x : xs) ys = tick >> (x:) <$> app xs ys
 
 rev :: MonadCredit m => [a] -> [a] -> m [a]
 rev [] acc = pure acc
