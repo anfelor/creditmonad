@@ -153,10 +153,12 @@ tests args =
       , ("Implicit Queue", test @(Q Implicit Alpha))
       , ("Bankers Deque", test @(D BDeque Alpha))
       , ("Realtime Deque", test @(D RDeque Alpha))
+      -- Catenable lists do not implement unsnoc properly,
+      --   so this test runs out of stack.
       -- , ("Catenable List", test @(D CatDeque Alpha))
       , ("Simple Catenable Deque", test @(D SimpleCat Alpha))
       , ("Implicit Catenable Deque", test @(D ImplicitCat Alpha))
-      -- , ("Catenable List (Concat)", test @(BD CatDeque Alpha))
+      , ("Catenable List (Concat)", test @(BD CatDeque Alpha))
       , ("Simple Catenable Deque (Concat)", test @(BD SimpleCat Alpha))
       , ("Implicit Catenable Deque (Concat)", test @(BD ImplicitCat Alpha))
       , ("Binomial Heap", test @(H Binomial Alpha))
