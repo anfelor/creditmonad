@@ -125,11 +125,11 @@ benchmarks args =
       , ("Original Finger Tree (Random Access)", run @(RA (FingerRA Original) Alpha))
       , ("Original Finger Tree (Sortable)", run @(S (FingerSort Original) Alpha))
       , ("FIP Finger Tree (Deque)", run @(D (FingerDeque FIP) Alpha))
-      -- , ("FIP Finger Tree (Concat)", run @(BD (FingerDeque FIP) Alpha))
-      -- , ("FIP Finger Tree (Heap)", run @(H (FingerHeap FIP) Alpha))
-      -- , ("FIP Finger Tree (Merge)", run @(BH (FingerHeap FIP) Alpha))
-      -- , ("FIP Finger Tree (Random Access)", run @(RA (FingerRA FIP) Alpha))
-      -- , ("FIP Finger Tree (Sortable)", run @(S (FingerSort FIP) Alpha))
+      , ("FIP Finger Tree (Concat)", run @(BD (FingerDeque FIP) Alpha))
+      , ("FIP Finger Tree (Heap)", run @(H (FingerHeap FIP) Alpha))
+      , ("FIP Finger Tree (Merge)", run @(BH (FingerHeap FIP) Alpha))
+      , ("FIP Finger Tree (Random Access)", run @(RA (FingerRA FIP) Alpha))
+      , ("FIP Finger Tree (Sortable)", run @(S (FingerSort FIP) Alpha))
       ]
   ]
 
@@ -192,11 +192,11 @@ tests args =
       , ("Original Finger Tree (Random Access)", test @(RA (FingerRA Original) Alpha))
       , ("Original Finger Tree (Sortable)", test @(S (FingerSort Original) Alpha))
       , ("FIP Finger Tree (Deque)", test @(D (FingerDeque FIP) Alpha))
-      -- , ("FIP Finger Tree (Concat)", test @(BD (FingerDeque FIP) Alpha))
-      -- , ("FIP Finger Tree (Heap)", test @(H (FingerHeap FIP) Alpha))
-      -- , ("FIP Finger Tree (Merge)", test @(BH (FingerHeap FIP) Alpha))
+      , ("FIP Finger Tree (Concat)", test @(BD (FingerDeque FIP) Alpha))
+      , ("FIP Finger Tree (Heap)", test @(H (FingerHeap FIP) Alpha))
+      , ("FIP Finger Tree (Merge)", test @(BH (FingerHeap FIP) Alpha))
       , ("FIP Finger Tree (Random Access)", test @(RA (FingerRA FIP) Alpha))
-      -- , ("FIP Finger Tree (Sortable)", test @(S (FingerSort FIP) Alpha))
+      , ("FIP Finger Tree (Sortable)", test @(S (FingerSort FIP) Alpha))
       ]
   ]
 

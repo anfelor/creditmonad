@@ -150,14 +150,14 @@ class MonadLazy m => MonadMemory m where
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (Quotient m a) where
   prettyCell t = prettyQuotient t
 
-instance MonadMemory m => MemoryCell m () where
+instance Monad m => MemoryCell m () where
   prettyCell () = pure $ mkMCell "()" []
 
-instance (MonadMemory m, MemoryCell m a) => MemoryCell m (Maybe a) where
+instance MemoryCell m a => MemoryCell m (Maybe a) where
   prettyCell Nothing = pure $ mkMCell "None" []
   prettyCell (Just x) = prettyCell x
 
-instance (MonadMemory m, MemoryCell m a, MemoryCell m b) => MemoryCell m (Either a b) where
+instance (MemoryCell m a, MemoryCell m b) => MemoryCell m (Either a b) where
   prettyCell (Left a) = prettyCell a
   prettyCell (Right b) = prettyCell b
 

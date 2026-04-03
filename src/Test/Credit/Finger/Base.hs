@@ -134,7 +134,7 @@ lookupTree p i xs =
 newtype Elem a = Elem a
   deriving (Eq, Ord, Show)
 
-instance (MemoryCell m a) => MemoryCell m (Elem a) where
+instance (Monad m, MemoryCell m a) => MemoryCell m (Elem a) where
   prettyCell (Elem x) = prettyCell x
 
 -- Deque
@@ -228,6 +228,9 @@ instance BoundedFingerTree f => RA.BoundedRandomAccess (FingerRA f) where
   qcost n (RA.Lookup i) = fcost @f n SplitTree
   qcost n (RA.Update i _) = fcost @f n SplitTree + max (fcost @f n Snoc) (fcost @f n Cons + fcost @f n Concat)
 
+instance Monad m => MemoryCell m Size where
+  prettyCell (Size n) = pure $ mkMCell (show n) []
+
 instance (MonadMemory m, MemoryCell m (f Size (Elem a) m)) => MemoryCell m (FingerRA f a m) where
   prettyCell (FingerRA q) = prettyCell q
 
@@ -269,6 +272,12 @@ instance BoundedFingerTree f => H.BoundedHeap (FingerHeap f) where
   hcost n H.Merge = fcost @f n Concat
   hcost n H.SplitMin = fcost @f n SplitTree + fcost @f n Concat
 
+instance (Monad m, MemoryCell m a) => MemoryCell m (Prio a) where
+  prettyCell MInfty = pure $ mkMCell "MInfty" []
+  prettyCell (Prio x) = do
+    x' <- prettyCell x
+    pure $ mkMCell "Prio" [x']
+
 instance (MonadMemory m, MemoryCell m (f (Prio a) (Elem a) m)) => MemoryCell m (FingerHeap f a m) where
   prettyCell (FingerHeap q) = prettyCell q
 
@@ -303,6 +312,12 @@ instance FingerTree f => S.Sortable (FingerSort f) where
 instance BoundedFingerTree f => S.BoundedSortable (FingerSort f) where
   scost n (S.Add _) = fcost @f n SplitTree + fcost @f n Cons + fcost @f n Concat
   scost n S.Sort = fcost @f n TreeToList
+
+instance (Monad m, MemoryCell m a) => MemoryCell m (Key a) where
+  prettyCell NoKey = pure $ mkMCell "NoKey" []
+  prettyCell (Key x) = do
+    x' <- prettyCell x
+    pure $ mkMCell "Key" [x']
 
 instance (MonadMemory m, MemoryCell m (f (Key a) (Elem a) m)) => MemoryCell m (FingerSort f a m) where
   prettyCell (FingerSort q) = prettyCell q

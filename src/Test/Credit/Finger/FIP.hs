@@ -3,10 +3,7 @@
 module Test.Credit.Finger.FIP where
 
 import Prelude hiding (head, tail, last, init)
-import qualified Prelude
 import Control.Monad (when, unless)
-import Data.Foldable (foldlM, foldrM)
-import Prettyprinter (Pretty)
 
 import Control.Monad.Credit
 import Test.Credit (linear, log2)
@@ -99,79 +96,118 @@ import qualified Test.Credit.Finger.Base as F
 -- This is bound to happen whenever A is more space efficient
 -- than B and C by virtue of being larger.
 
--- This part is specific to the block size k = 3
+-- This part is specific to the block size k = 5
 
--- | Size 4 space credit
+-- | Size 6 space credit
 data Unit = Unit
   deriving (Eq, Ord, Show)
 
--- | Contains 1..k elements
-data Block a p = One p a | Two p a a | Three p a a a
+-- | Contains 1..k elements, stored in reverse order
+data Block a p = One p a | Two p a a | Three p a a a | Four p a a a a | Five p a a a a a
   deriving (Eq, Ord, Show)
 
 instance (Measured a v, Measured p v) => Measured (Block a p) v where
   measure (One p a) = measure (a, p)
-  measure (Two p a b) = measure (a, b, p)
-  measure (Three p a b c) = measure (a, b, c, p)
+  measure (Two p b a) = measure (a, b, p)
+  measure (Three p c b a) = measure (a, b, c, p)
+  measure (Four p d c b a) = measure (a, b, c, d, p)
+  measure (Five p e d c b a) = measure (a, b, c, d, e, p)
+
+blockToList :: Block a () -> [a]
+blockToList (One () a) = [a]
+blockToList (Two () b a) = [a, b]
+blockToList (Three () c b a) = [a, b, c]
+blockToList (Four () d c b a) = [a, b, c, d]
+blockToList (Five () e d c b a) = [a, b, c, d, e]
 
 type Digit a = Block a (Maybe (Block a ()))
 
-addBlock :: Maybe (Block a ()) -> Block a () -> Digit a
+addBlock :: p -> Block a () -> Block a p
 addBlock m (One () a) = One m a
-addBlock m (Two () a b) = Two m a b
-addBlock m (Three () a b c) = Three m a b c
+addBlock m (Two () b a) = Two m b a
+addBlock m (Three () c b a) = Three m c b a
+addBlock m (Four () d c b a) = Four m d c b a
+addBlock m (Five () e d c b a) = Five m e d c b a
 
-blockToDigit :: Block a () -> Digit a
-blockToDigit b = addBlock Nothing b
-
-digitToBlock :: Digit a -> (Block a (), Maybe (Block a ()))
-digitToBlock (One m a) = (One () a, m)
-digitToBlock (Two m a b) = (Two () a b, m)
-digitToBlock (Three m a b c) = (Three () a b c, m)
+breakBlock :: Block a p -> (Block a (), p)
+breakBlock (One m a) = (One () a, m)
+breakBlock (Two m b a) = (Two () b a, m)
+breakBlock (Three m c b a) = (Three () c b a, m)
+breakBlock (Four m d c b a) = (Four () d c b a, m)
+breakBlock (Five m e d c b a) = (Five () e d c b a, m)
 
 flipBlock :: Block a () -> Block a ()
 flipBlock (One () a) = One () a
-flipBlock (Two () a b) = Two () b a
-flipBlock (Three () a b c) = Three () c b a
+flipBlock (Two () b a) = Two () a b
+flipBlock (Three () c b a) = Three () a b c
+flipBlock (Four () d c b a) = Four () a b c d
+flipBlock (Five () e d c b a) = Five () a b c d e
 
 flipDigit :: Digit a -> Digit a
-flipDigit d = let (b, m) = digitToBlock d in go (flipBlock b) m
+flipDigit d = let (b, m) = breakBlock d in go (flipBlock b) m
   where
     go b Nothing = blockToDigit b
-    go b (Just m) = noThree $ addBlock (Just b) (flipBlock m)
+    go b (Just m) = noFull $ addBlock (Just b) (flipBlock m)
 
-    noThree :: Digit a -> Digit a
-    noThree (Three (Just (One () d)) a b c) = One (Just (Three () b c d)) a
-    noThree (Three (Just (Two () d e)) a b c) = Two (Just (Three () c d e)) a b
-    noThree d = d
+    noFull :: Digit a -> Digit a
+    noFull (Five (Just (One () f)) e d c b a) = One (Just (Five () f e d c b)) a
+    noFull (Five (Just (Two () g f)) e d c b a) = Two (Just (Five () g f e d c)) b a
+    noFull (Five (Just (Three () h g f)) e d c b a) = Three (Just (Five () h g f e d)) c b a
+    noFull (Five (Just (Four () i h g f)) e d c b a) = Four (Just (Five () i h g f e)) d c b a
+    noFull d = d
 
 -- | A digit is unsafe if push or pop can cause it to become empty or overflow.
 isSafe :: Digit a -> Bool
 isSafe (One Nothing _) = False
-isSafe (Two (Just _) _ _) = False
+isSafe (Four (Just _) _ _ _ _) = False
 isSafe _ = True
 
+-- | Split a block into two: requires up to one allocation.
 splitBlock :: Measured a v => (v -> Bool) -> v -> Block a () -> (Maybe (Block a ()), a, Maybe (Block a ()))
 splitBlock p i (One () a) = (Nothing, a, Nothing)
-splitBlock p i (Two () a b)
+splitBlock p i (Two () b a)
   | p (i <> measure a) = (Nothing, a, Just (One () b))
   | otherwise = (Just (One () a), b, Nothing)
-splitBlock p i (Three () a b c)
-  | p (i <> measure a) = (Nothing, a, Just (Two () b c))
+splitBlock p i (Three () c b a)
+  | p (i <> measure a) = (Nothing, a, Just (Two () c b))
   | p (i <> measure (a, b)) = (Just (One () a), b, Just (One () c))
-  | otherwise = (Just (Two () a b), c, Nothing)
+  | otherwise = (Just (Two () b a), c, Nothing)
+splitBlock p i (Four () d c b a)
+  | p (i <> measure a) = (Nothing, a, Just (Three () d c b))
+  | p (i <> measure (a, b)) = (Just (One () a), b, Just (Two () d c))
+  | p (i <> measure (a, b, c)) = (Just (Two () b a), c, Just (One () d))
+  | otherwise = (Just (Three () c b a), d, Nothing)
+splitBlock p i (Five () e d c b a)
+  | p (i <> measure a) = (Nothing, a, Just (Four () e d c b))
+  | p (i <> measure (a, b)) = (Just (One () a), b, Just (Three () e d c))
+  | p (i <> measure (a, b, c)) = (Just (Two () b a), c, Just (Two () e d))
+  | p (i <> measure (a, b, c, d)) = (Just (Three () b a c), d, Just (One () e))
+  | otherwise = (Just (Four () d c b a), e, Nothing)
 
--- | Split one digit into two: requires one allocation.
-splitDigit :: Measured a v => (v -> Bool) -> v -> Digit a -> (Maybe (Digit a), a, Maybe (Digit a))
-splitDigit p i d =
-  let (b, m) = digitToBlock d in
-  case (m, p (i <> measure b)) of
-    (Just m, False) ->
-      let (l, x, r) = splitBlock p (i <> measure b) m in
-      (Just (addBlock l b), x, fmap blockToDigit r)
-    (m, _) ->
-      let (l, x, r) = splitBlock p i b in
-      (fmap blockToDigit l, x, fmap (addBlock m) r)
+-- | Shift elements from the first into the second block.
+-- Return up to one partly filled block and up to one fully filled block.
+shiftL :: Block a () -> Block a () -> (Maybe (Block a ()), Maybe (Block a ()))
+shiftL a (Five () f e d c b) = (Just a, Just $ Five () f e d c b)
+shiftL (One () a) (One () b) = (Just $ Two () b a, Nothing)
+shiftL (One () a) (Two () c b) = (Just $ Three () c b a, Nothing)
+shiftL (One () a) (Three () d c b) = (Just $ Four () d c b a, Nothing)
+shiftL (One () a) (Four () e d c b) = (Nothing, Just $ Five () e d c b a)
+shiftL (Two () b a) (One () c) = (Just $ Three () c b a, Nothing)
+shiftL (Two () b a) (Two () d c) = (Just $ Four () d c b a, Nothing)
+shiftL (Two () b a) (Three () e d c) = (Nothing, Just $ Five () e d c b a)
+shiftL (Two () b a) (Four () f e d c) = (Just $ One () a, Just $ Five () f e d c b)
+shiftL (Three () c b a) (One () d) = (Just $ Four () d c b a, Nothing)
+shiftL (Three () c b a) (Two () e d) = (Nothing, Just $ Five () e d c b a)
+shiftL (Three () c b a) (Three () f e d) = (Just $ One () a, Just $ Five () f e d c b)
+shiftL (Three () c b a) (Four () g f e d) = (Just $ Two () b a, Just $ Five () g f e d c)
+shiftL (Four () d c b a) (One () e) = (Nothing, Just $ Five () e d c b a)
+shiftL (Four () d c b a) (Two () f e) = (Just $ One () a, Just $ Five () f e d c b)
+shiftL (Four () d c b a) (Three () g f e) = (Just $ Two () b a, Just $ Five () g f e d c)
+shiftL (Four () d c b a) (Four () h g f e) = (Just $ Three () c b a, Just $ Five () h g f e d)
+shiftL (Five () e d c b a) (One () f) = (Just $ One () a, Just $ Five () f e d c b)
+shiftL (Five () e d c b a) (Two () g f) = (Just $ Two () b a, Just $ Five () g f e d c)
+shiftL (Five () e d c b a) (Three () h g f) = (Just $ Three () c b a, Just $ Five () h g f e d)
+shiftL (Five () e d c b a) (Four () i h g f) = (Just $ Four () d c b a, Just $ Five () i h g f e)
 
 -- | Pushing works as follows:
 --   - If a block has less than k elements, it is safe.
@@ -179,13 +215,15 @@ splitDigit p i d =
 --     We need to push out the other block in the digit.
 --   - If a block is full, we create a new node
 -- This type should be unboxed.
-data PushState a = Safe (Digit a) Unit | Dangerous (Block a ()) (Maybe (Block a ())) Unit | Full (Digit a) 
+data PushState a p = Safe (Block a p) Unit | Dangerous (Block a ()) p Unit | Full (Digit a) 
   deriving (Eq, Ord, Show)
 
-pushBlock :: a -> Digit a -> Unit -> PushState a
-pushBlock x (One p a) u = Safe (Two p x a) u
-pushBlock x (Two p a b) u = Dangerous (Three () x a b) p u
-pushBlock x (Three _ a b c) _ = Full (One (Just (Three () a b c)) x)
+pushBlock :: a -> Block a p -> Unit -> PushState a p
+pushBlock x (One p a) u = Safe (Two p a x) u
+pushBlock x (Two p b a) u = Safe (Three p b a x) u
+pushBlock x (Three p c b a) u = Safe (Four p c b a x) u
+pushBlock x (Four p d c b a) u = Dangerous (Five () d c b a x) p u
+pushBlock x (Five _ e d c b a) _ = Full (One (Just (Five () e d c b a)) x)
 
 -- This type should be unboxed.
 data PopState a = NowEmpty a (Maybe (Block a ())) Unit | Occupied a (Digit a)
@@ -193,23 +231,10 @@ data PopState a = NowEmpty a (Maybe (Block a ())) Unit | Occupied a (Digit a)
 
 popBlock :: Digit a -> PopState a
 popBlock (One p a) = NowEmpty a p Unit
-popBlock (Two p a b) = Occupied a (One p b)
-popBlock (Three _ a b c) = Occupied a (Two Nothing b c)
-
--- | Contains 2..k elements
-data Node v a = Pair v a a | Triple v a a a
-  deriving (Eq, Ord, Show)
-
-instance Measured a v => Measured (Node v a) v where
-  measure (Pair v _ _) = v
-  measure (Triple v _ _ _) = v
-
-nodeToDigit :: Node v a -> Digit a
-nodeToDigit (Pair _ a b) = Two Nothing a b
-nodeToDigit (Triple _ a b c) = Three Nothing a b c
-
-blockToNode :: Measured a v => Block a () -> Node v a
-blockToNode (Three () a b c) = Triple (measure (a, b, c)) a b c
+popBlock (Two p b a) = Occupied a (One p b)
+popBlock (Three p c b a) = Occupied a (Two p c b)
+popBlock (Four p d c b a) = Occupied a (Three p d c b)
+popBlock (Five p e d c b a) = Occupied a (Four p e d c b)
 
 -- This part is independent of the block size k
 
@@ -219,6 +244,22 @@ blockToNode (Three () a b c) = Triple (measure (a, b, c)) a b c
 -- - nodeToDigit may not use space credits
 -- - toTree may use two space credits
 -- - to make glue fip, we may never have fully filled digits
+
+-- | Contains 1..k elements
+newtype Node v a = Node (Block a v)
+  deriving (Eq, Ord, Show)
+
+instance Measured a v => Measured (Node v a) v where
+  measure (Node b) = snd $ breakBlock b
+
+blockToDigit :: Block a () -> Digit a
+blockToDigit b = addBlock Nothing b
+
+nodeToBlock :: Node v a -> Block a ()
+nodeToBlock (Node b) = fst $ breakBlock b
+
+blockToNode :: Measured a v => Block a () -> Node v a
+blockToNode b = Node (addBlock (measure b) b)
 
 singleton :: Unit -> a -> Digit a
 singleton _ x = One Nothing x
@@ -236,11 +277,6 @@ headDigit d = case popBlock d of
   NowEmpty x _ _ -> x
   Occupied x _ -> x
 
-measureDigitTail :: Measured a v => Digit a -> v
-measureDigitTail d = case popBlock d of
-  NowEmpty _ p _ -> measure p
-  Occupied _ d -> measure d
-
 -- | Pop takes an element from the block.
 -- If the resulting digit is empty, it will return a space credit.
 pop :: Digit a -> (a, Either Unit (Digit a))
@@ -254,6 +290,17 @@ toTree (u1, u2) d = case popBlock d of
   Occupied a d -> deep' mempty (singleton u1 a) vempty (flipDigit d) u2
   NowEmpty a Nothing u3 -> pure $ Single a
   NowEmpty a (Just back) u3 -> deep' mempty (singleton u1 a) vempty (blockToDigit (flipBlock back)) u2
+
+digitToList :: Digit a -> [a]
+digitToList d =
+  let (b, m) = breakBlock d in
+  blockToList b ++ maybe [] blockToList m
+
+nodeToDigit :: Node v a -> Digit a
+nodeToDigit = blockToDigit . nodeToBlock
+
+nodeToList :: Node v a -> [a]
+nodeToList = blockToList . nodeToBlock
 
 -- | Pad all to four elements
 data FIP v a m
@@ -277,7 +324,7 @@ instance MonadCredit m => HasStep (FLazyCon m) m where
 instance Measured a v => Measured (FIP v a m) v where
   measure Empty = mempty
   measure (Single x) = measure x
-  measure (Deep vm f m r) = measure f <> vm <> measure r
+  measure (Deep vm f m r) = measure f <> vm <> measure (flipDigit r)
 
 instance F.FingerTree FIP where
   empty = Empty
@@ -292,7 +339,7 @@ instance F.FingerTree FIP where
   last = last
   init = init
 
-  concat q1 q2 = fail "concat not implemented" -- glue q1 [] q2
+  concat q1 q2 = glue q1 Nothing q2
   splitTree = splitTree
   treeToList q = treeToListAcc [] (\x -> [x]) q
 
@@ -324,7 +371,7 @@ deep :: (MonadCredit m, Measured a v) => v -> Digit a -> Thunk m (FLazyCon m) (F
 deep v f m r _ = do
   let dang d = if isSafe d then 0 else 1
   m `hasAtLeast` (dang f + dang r)
-  lazymatch m (\m -> when (v /= measure m) $ error "invalid measure") (\_ -> pure ())
+  lazymatch m (\m -> when (v /= measure m) $ fail "invalid measure") (\_ -> pure ())
   pure $ Deep v f m r
 
 deep' :: (MonadCredit m, Measured a v) => v -> Digit a -> m (Thunk m (FLazyCon m) (FIP v (Node v a) m)) -> Digit a -> Unit -> m (FIP v a m)
@@ -408,7 +455,9 @@ measureTail :: Measured a v
 measureTail q = case q of
   Empty -> mempty
   Single _ -> mempty
-  Deep v pr _ sf -> measureDigitTail pr <> v <> measure sf
+  Deep v pr _ sf -> (case popBlock pr of
+    NowEmpty _ p _ -> measure p
+    Occupied _ d -> measure d) <> v <> measure (flipDigit sf)
 
 snoc :: (MonadCredit m, Measured a v)
      => Unit -> FIP v a m -> a -> m (FIP v a m)
@@ -484,7 +533,9 @@ measureInit :: Measured a v
 measureInit q = case q of
   Empty -> mempty
   Single _ -> mempty
-  Deep v pr _ sf -> measure pr <> v <> measureDigitTail sf
+  Deep v pr _ sf -> measure pr <> v <> (case popBlock sf of
+    NowEmpty _ p _ -> measure (fmap flipBlock p)
+    Occupied _ d -> measure (flipDigit d))
 
 -- To make glue fip, we do the following:
 -- - The cons cells of the middle list are padded to size k
@@ -498,29 +549,84 @@ measureInit q = case q of
 -- In particular, if (Split l x r = splitTree p i t), then `concat l r` and `concat l (cons x r)`
 -- try to restore the original tree t.
 
--- toNodes :: Measured a v => [a] -> [Node v a]
--- toNodes [] = []
--- toNodes [x, y] = [pair x y]
--- toNodes [x, y, z, w] = [pair x y, pair z w]
--- toNodes (x : y : z : xs) = triple x y z : toNodes xs
+foldDigit :: Monad m => (b -> a -> m b) -> b -> Digit a -> m b
+foldDigit f acc d = case pop d of
+  (a, Left _) -> f acc a
+  (a, Right d') -> do
+    acc' <- f acc a
+    foldDigit f acc' d'
 
--- -- | Needs five allocations in the base case to cons/snoc.
--- glue :: (MonadCredit m, Measured a v) => FIP v a m -> [a] -> FIP v a m -> m (FIP v a m)
--- glue Empty as q2 = foldrM (cons Unit) q2 as
--- glue q1 as Empty = foldlM (snoc Unit) q1 as
--- glue (Single x) as q2 = do 
-  -- q <- foldrM (cons Unit) q2 as
-  -- cons Unit x q -- from Single
--- glue q1 as (Single y) = do
-  -- q <- foldlM (snoc Unit) q1 as
-  -- snoc Unit q y -- from Single
--- glue (Deep _ u1 q1 v1) as (Deep _ u2 q2 v2) = tick >> do
-  -- creditWith q1 2
-  -- q1 <- force q1
-  -- creditWith q2 2
-  -- q2 <- force q2
-  -- q <- glue q1 (toNodes (v1 ++ as ++ u2)) q2
-  -- deep' (measure q) u1 (value q) v2 -- from first Deep
+foldMBlock :: Monad m => (b -> a -> m b) -> b -> Maybe (Block a ()) -> m b
+foldMBlock f acc Nothing = pure acc
+foldMBlock f acc (Just b) = foldDigit f acc (blockToDigit b)
+
+pushShifted :: Measured a v => Maybe (Block a ()) -> (Maybe (Block a ()), Either Unit (Block (Node v a) ())) -> (Maybe (Block a ()), Either Unit (Block (Node v a) ()))
+pushShifted Nothing (Nothing, e) = (Nothing, e)
+pushShifted Nothing ((Just b), e) = (Just b, e)
+pushShifted (Just b) (Nothing, e) = (Just b, e)
+pushShifted (Just b) ((Just b'), e) =
+  let (pf, ff) = shiftL b b' in
+  (pf, case ff of
+    Nothing -> e
+    Just ff -> case e of
+      -- Create a singleton block:
+      Left Unit -> Right (One () (blockToNode ff))
+      -- Push into the existing block:
+      -- (this succeeds as we have at most 5 elements)
+      Right b -> case pushBlock (blockToNode ff) b Unit of
+        Safe b Unit -> Right b
+        Dangerous b () Unit -> Right b)
+
+-- | TODO: this function can turn a One block into a node if the shiftL function leaves it over.
+-- This is a problem for deepL/deepR who turn a node into a digit: the amortization argument in
+-- that function assumes that the new digit is safe, but a 'One' is not safe.
+pushLast :: Measured a v => (Maybe (Block a ()), Either Unit (Block (Node v a) ())) -> Block (Node v a) ()
+pushLast (Nothing, Right b) = b
+pushLast (Just b, Left Unit) = One () (blockToNode b)
+pushLast (Just b, Right b') = case pushBlock (blockToNode b) b' Unit of
+  Safe b Unit -> b
+  Dangerous b () Unit -> b
+
+-- | Needs five allocations in the base case to cons/snoc.
+glue :: (MonadCredit m, Measured a v) => FIP v a m -> Maybe (Block a ()) -> FIP v a m -> m (FIP v a m)
+glue Empty as q2 = foldMBlock (\q a -> cons Unit a q) q2 (fmap flipBlock as)
+glue q1 as Empty = foldMBlock (snoc Unit) q1 as
+glue (Single x) as q2 = do 
+  q <- foldMBlock (\q a -> cons Unit a q) q2 (fmap flipBlock as)
+  cons Unit x q -- from Single
+glue q1 as (Single y) = do
+  q <- foldMBlock (snoc Unit) q1 as
+  snoc Unit q y -- from Single
+glue (Deep _ u1 q1 v1) as (Deep _ u2 q2 v2) = tick >> do
+  creditWith q1 2
+  q1 <- force q1
+  creditWith q2 2
+  q2 <- force q2
+  let (a, b) = breakBlock (flipDigit v1)
+  let (d, e) = breakBlock u2
+  let as' = pushLast $
+              pushShifted (Just a) $
+              pushShifted b $
+              pushShifted as $
+              pushShifted (Just d) $
+              pushShifted e $
+              (Nothing, Left Unit) -- from first Deep
+  q <- glue q1 (Just as') q2
+  deep' (measure q) u1 (value q) v2 Unit -- from second Deep
+
+-- | Split one digit into two: requires up to one allocation.
+splitDigit :: Measured a v => (v -> Bool) -> v -> Digit a -> (Maybe (Digit a), a, Maybe (Digit a))
+splitDigit p i d =
+  let (b, m) = breakBlock d in
+  case (m, p (i <> measure b)) of
+    (Just m, False) ->
+      let (l, x, r) = splitBlock p (i <> measure b) m in
+      (Just (addBlock l b), x, fmap blockToDigit r)
+    (m, _) ->
+      let (l, x, r) = splitBlock p i b in
+      (fmap blockToDigit l, x, case r of
+        Nothing -> fmap blockToDigit m
+        Just r -> Just $ addBlock m r)
 
 mtoTree :: (MonadCredit m, Measured a v) => (Unit, Unit) -> Maybe (Digit a) -> m (FIP v a m)
 mtoTree (u1, u2) (Just d) = toTree (u1, u2) d
@@ -556,20 +662,6 @@ append :: MonadCredit m => [a] -> [a] -> m [a]
 append [] ys = pure ys
 append (x : xs) ys = tick >> fmap (x:) (append xs ys)
 
-blockToList :: Block a () -> [a]
-blockToList (One () a) = [a]
-blockToList (Two () a b) = [a, b]
-blockToList (Three () a b c) = [a, b, c]
-
-digitToList :: Digit a -> [a]
-digitToList (One p a) = [a] ++ maybe [] blockToList p
-digitToList (Two p a b) = [a, b] ++ maybe [] blockToList p
-digitToList (Three p a b c) = [a, b, c] ++ maybe [] blockToList p
-
-nodeToList :: Node v a -> [a]
-nodeToList (Pair _ a b) = [a, b]
-nodeToList (Triple _ a b c) = [a, b, c]
-
 treeToListAcc :: MonadCredit m => [b] -> (a -> [b]) -> FIP v a m -> m [b]
 treeToListAcc acc f Empty = pure acc
 treeToListAcc acc f (Single x) = append (f x) acc
@@ -586,28 +678,35 @@ instance (MemoryCell m a, MemoryCell m p) => MemoryCell m (Block a p) where
     a' <- prettyCell a
     p' <- prettyCell p
     pure $ mkMCell "One" [p', a']
-  prettyCell (Two p a b) = do
+  prettyCell (Two p b a) = do
     a' <- prettyCell a
     b' <- prettyCell b
     p' <- prettyCell p
     pure $ mkMCell "Two" [p', a', b']
-  prettyCell (Three p a b c) = do
+  prettyCell (Three p c b a) = do
     a' <- prettyCell a
     b' <- prettyCell b
     c' <- prettyCell c
     p' <- prettyCell p
     pure $ mkMCell "Three" [p', a', b', c']
-
-instance MemoryCell m a => MemoryCell m (Node v a) where
-  prettyCell (Pair _ a b) = do
-    a' <- prettyCell a
-    b' <- prettyCell b
-    pure $ mkMCell "Pair" [a', b']
-  prettyCell (Triple _ a b c) = do
+  prettyCell (Four p d c b a) = do
     a' <- prettyCell a
     b' <- prettyCell b
     c' <- prettyCell c
-    pure $ mkMCell "Triple" [a', b', c']
+    d' <- prettyCell d
+    p' <- prettyCell p
+    pure $ mkMCell "Four" [p', a', b', c', d']
+  prettyCell (Five p e d c b a) = do
+    a' <- prettyCell a
+    b' <- prettyCell b
+    c' <- prettyCell c
+    d' <- prettyCell d
+    e' <- prettyCell e
+    p' <- prettyCell p
+    pure $ mkMCell "Five" [p', a', b', c', d', e']
+
+instance (MonadMemory m, MemoryCell m a) => MemoryCell m (Node v a) where
+  prettyCell = prettyCell . nodeToBlock
 
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (FLazyCon m a) where
   prettyCell (FCons x m) = do
@@ -627,16 +726,17 @@ instance (MonadMemory m, MemoryCell m a) => MemoryCell m (FLazyCon m a) where
     -- m' <- prettyCell m
     pure $ mkMCell "FDeepR" []
 
-instance (MonadMemory m, MemoryCell m a) => MemoryCell m (FIP v a m) where
+instance (MonadMemory m, MemoryCell m a, MemoryCell m v) => MemoryCell m (FIP v a m) where
   prettyCell Empty = pure $ mkMCell "Empty" []
   prettyCell (Single a) = do
     a' <- prettyCell a
     pure $ mkMCell "Single" [a']
-  prettyCell (Deep _ s q u) = do
+  prettyCell (Deep v s q u) = do
+    v' <- prettyCell v
     s' <- prettyCell s
     q' <- prettyCell q
-    u' <- prettyCell u
-    pure $ mkMCell "Deep" [s', q', u']
+    u' <- prettyCell (flipDigit u)
+    pure $ mkMCell "Deep" [v', s', q', u']
 
-instance (forall m. Monad m => MemoryCell m a) => MemoryStructure (FIP v a) where
+instance (forall m. Monad m => MemoryCell m a, forall m. Monad m => MemoryCell m v) => MemoryStructure (FIP v a) where
   prettyStructure = prettyCell
