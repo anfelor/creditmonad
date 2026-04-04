@@ -16,7 +16,7 @@ import qualified Test.Credit.Finger.Base as F
 --
 --   fip fun measure(t : finger<v,a> @ borrow) : v @ borrow
 --
---   fbip(2) fun cons(a : a, t : finger<v,a>) : finger<v,a>
+--   fbip fun cons(a : a, u : unit, t : finger<v,a>) : finger<v,a>
 --   fbip fun uncons(t : finger<v,a>) : maybe2<a, finger<v,a>>
 --   fip fun head(t : finger<v,a> @ borrow) : a @ borrow
 --   fbip fun tail(t : finger<v,a>) : finger<v,a>
@@ -24,7 +24,7 @@ import qualified Test.Credit.Finger.Base as F
 --
 --   type split<v,a> = { smaller : finger<v,a>, found : a, bigger : finger<v,a> }
 --   fun splitTree(p : (v -> bool), t : finger<v,a>) : split<v,a>
---   fbip(6) fun concat(t1 : finger<v,a>, t2 : finger<v,a>) : finger<v,a>
+--   fbip(k + 5) fun concat(t1 : finger<v,a>, t2 : finger<v,a>) : finger<v,a>
 
 -- Why so much fbip? We need to pass space credits down the tree
 -- but often end up discarding them.
@@ -259,7 +259,7 @@ popBlock (Digit (Five p e d c b a)) = Occupied a (Digit (Four p e d c b))
 -- - singleton may use one space credit
 -- - pop needs to return a space credit with empty digit
 -- - nodeToDigit may not use space credits
--- - toTree may use two space credits
+-- - toTree may use one space credit
 -- - to make glue fip, we may never have fully filled digits
 
 -- | Contains 1..k elements
@@ -279,7 +279,10 @@ blockToNode :: Measured a v => Block a () -> Node v a
 blockToNode b = Node (addBlock (measure b) b)
 
 singleton :: Unit -> a -> Digit o a
-singleton _ x = Digit (One Nothing x)
+singleton _ a = Digit (One Nothing a)
+
+doubleton :: Unit -> a -> a -> Digit o a
+doubleton _ a b = Digit (Two Nothing b a)
 
 -- | Push takes a space credit and may return a node
 push :: a -> Digit o a -> Unit -> (Digit o a, Maybe (Block a (), Unit))
@@ -302,12 +305,6 @@ pop d = case popBlock d of
     NowEmpty x Nothing u -> (x, Left u) -- return space credit
     NowEmpty x (Just back) u -> (x, Right (blockToDigit back)) -- could return space credit
 
-toTree :: (MonadCredit m, Measured a v) => (Unit, Unit) -> Digit 'Ordered a -> m (FIP v a m)
-toTree (u1, u2) d = case popBlock d of
-  Occupied a d -> deep' mempty (singleton u1 a) vempty (flipDigit d) u2
-  NowEmpty a Nothing u3 -> pure $ Single a
-  NowEmpty a (Just back) u3 -> deep' mempty (singleton u1 a) vempty (blockToDigit (flipBlock back)) u2
-
 digitToList :: Digit 'Ordered a -> [a]
 digitToList d =
   let (b, m) = breakBlock (unDigit d) in
@@ -323,24 +320,26 @@ nodeToList = blockToList . nodeToBlock
 data FIP v a m
   = Empty
   | Single a
+  | SDigit (Digit 'Ordered a)
   | Deep v (Digit 'Ordered a) (Thunk m (FLazyCon m) (FIP v (Node v a) m)) (Digit 'Flipped a)
 
 data FLazyCon m a where
   FCons :: Measured a v => a -> Thunk m (FLazyCon m) (FIP v a m) -> FLazyCon m (FIP v a m)
   FSnoc :: Measured a v => Thunk m (FLazyCon m) (FIP v a m) -> a -> FLazyCon m (FIP v a m)
-  FDeepL :: Measured a v => v -> Unit -> Thunk m (FLazyCon m) (FIP v (Node v a) m) -> Digit 'Flipped a -> FLazyCon m (FIP v a m)
-  FDeepR :: Measured a v => v -> Digit 'Ordered a -> Thunk m (FLazyCon m) (FIP v (Node v a) m) -> Unit -> FLazyCon m (FIP v a m)
+  FDeepL :: Measured a v => v -> () -> Thunk m (FLazyCon m) (FIP v (Node v a) m) -> Digit 'Flipped a -> FLazyCon m (FIP v a m)
+  FDeepR :: Measured a v => v -> Digit 'Ordered a -> Thunk m (FLazyCon m) (FIP v (Node v a) m) -> () -> FLazyCon m (FIP v a m)
 
 instance MonadCredit m => HasStep (FLazyCon m) m where
   -- We get a space credit from the thunk
   step (FCons x m) = cons Unit x =<< force m
   step (FSnoc m x) = flip (snoc Unit) x =<< force m
-  step (FDeepL v u m sf) = deepL (Unit, u) Nothing v m sf
-  step (FDeepR v pr m u) = deepR (Unit, u) pr v m Nothing
+  step (FDeepL v () m sf) = deepL Unit Nothing v m sf
+  step (FDeepR v pr m ()) = deepR Unit pr v m Nothing
 
 instance Measured a v => Measured (FIP v a m) v where
   measure Empty = mempty
   measure (Single x) = measure x
+  measure (SDigit d) = measure d
   measure (Deep vm f m r) = measure f <> vm <> measure (flipDigit r)
 
 instance F.FingerTree FIP where
@@ -401,11 +400,8 @@ cons u1 a q = do
   tick
   case q of
     Empty -> pure $ Single a
-    Single b -> do
-      -- In this case, we need one extra allocation.
-      -- It seems hard to avoid this: in a previous approach, we would store a unit on Single
-      -- but that requires us to box the empty type, which creates a fourth allocation here.
-      deep' mempty (singleton u1 a) vempty (singleton Unit b) Unit
+    Single b -> pure $ SDigit (doubleton u1 a b) -- at Single
+    SDigit d -> deep' mempty (singleton u1 a) vempty (flipDigit d) Unit -- at SDigit
     Deep vm pr m sf ->
       case push a pr Unit of -- Unit from Deep
         (pr', Nothing) -> do
@@ -422,6 +418,7 @@ cons u1 a q = do
 head :: MonadCredit m => FIP v a m -> m a
 head Empty = fail "head: empty queue"
 head (Single x) = pure x
+head (SDigit d) = pure $ headDigit d
 head (Deep _ pr _ _) = pure $ headDigit pr
 
 uncons :: (MonadCredit m, Measured a v) => FIP v a m -> m (Maybe (a, Thunk m (FLazyCon m) (FIP v a m)))
@@ -432,10 +429,17 @@ uncons q = do
     Single a -> do
       e <- vempty
       pure $ Just (a, e)
+    SDigit d -> case pop d of
+      (a, Left u) -> do
+        t <- vempty
+        pure $ Just (a, t)
+      (a, Right d') -> do
+        t <- value $ SDigit d'
+        pure $ Just (a, t)
     Deep vm pr m sf -> do
       case pop pr of
         (a, Left u) -> do
-          t <- delay $ FDeepL vm u m sf -- at Deep
+          t <- delay $ FDeepL vm () m sf -- at Deep
           t `creditWith` 1
           pure $ Just (a, t)
         (a, Right pr') -> do
@@ -453,18 +457,18 @@ tail q = do
       t `creditWith` 2
       force t
 
-deepL :: (MonadCredit m, Measured a v) => (Unit, Unit) -> Maybe (Digit 'Ordered a) -> v -> Thunk m (FLazyCon m) (FIP v (Node v a) m) -> Digit 'Flipped a -> m (FIP v a m)
-deepL (u1, u2) Nothing _ m sf = do
+deepL :: (MonadCredit m, Measured a v) => Unit -> Maybe (Digit 'Ordered a) -> v -> Thunk m (FLazyCon m) (FIP v (Node v a) m) -> Digit 'Flipped a -> m (FIP v a m)
+deepL u1 Nothing _ m sf = do
   when (isSafe sf) $ m `creditWith` 1
   m' <- force m
   let mt = measureTail m'
   m'' <- uncons m'
   case m'' of
-    Nothing -> toTree (u1, u2) (flipDigit sf)
+    Nothing -> pure $ SDigit (flipDigit sf)
     Just (h, t) -> do -- h is safe
       unless (isSafe sf) $ t `creditWith` 1
       deep mt (nodeToDigit h) t sf u1
-deepL (u1, _) (Just pr) vm m sf = deep vm pr m sf u1
+deepL u1 (Just pr) vm m sf = deep vm pr m sf u1
 
 -- | FIP if it takes its argument as borrowed and returns int
 measureTail :: Measured a v
@@ -472,9 +476,12 @@ measureTail :: Measured a v
 measureTail q = case q of
   Empty -> mempty
   Single _ -> mempty
-  Deep v pr _ sf -> (case popBlock pr of
-    NowEmpty _ p _ -> measure p
-    Occupied _ d -> measure d) <> v <> measure (flipDigit sf)
+  SDigit d -> (case pop d of
+    (_, Left u) -> mempty
+    (_, Right d') -> measure d') 
+  Deep v pr _ sf -> (case pop pr of
+    (_, Left u) -> mempty
+    (_, Right pr') -> measure pr') <> v <> measure (flipDigit sf)
 
 snoc :: (MonadCredit m, Measured a v)
      => Unit -> FIP v a m -> a -> m (FIP v a m)
@@ -482,9 +489,8 @@ snoc u1 q e = do
   tick
   case q of
     Empty -> pure $ Single e -- at u1
-    Single a -> do
-      -- Needs extra allocation, see 'cons'
-      deep' mempty (singleton u1 a) vempty (singleton Unit e) Unit
+    Single a -> pure $ SDigit (doubleton u1 a e) -- at Single
+    SDigit d -> deep' mempty d vempty (singleton u1 e) Unit -- at SDigit
     Deep vm pr m sf ->
       case push e sf Unit of -- from Deep
         (sf', Nothing) -> do
@@ -501,6 +507,7 @@ snoc u1 q e = do
 last :: (MonadCredit m, Measured a v) => FIP v a m -> m a
 last Empty = fail "last: empty queue"
 last (Single x) = pure x
+last (SDigit d) = pure $ headDigit $ flipDigit d
 last (Deep _ _ _ sf) = pure $ headDigit sf
 
 unsnoc :: (MonadCredit m, Measured a v) => FIP v a m -> m (Maybe (Thunk m (FLazyCon m) (FIP v a m), a))
@@ -511,10 +518,17 @@ unsnoc q = do
     Single a -> do
       e <- vempty
       pure $ Just (e, a)
+    SDigit d -> case pop (flipDigit d) of
+      (a, Left u) -> do
+        t <- vempty
+        pure $ Just (t, a)
+      (a, Right d') -> do
+        t <- value $ SDigit (flipDigit d')
+        pure $ Just (t, a)
     Deep vm pr m sf ->
       case pop sf of
         (a, Left u) -> do
-          t <- delay $ FDeepR vm pr m u -- from Deep
+          t <- delay $ FDeepR vm pr m () -- from Deep
           t `creditWith` 1
           pure $ Just (t, a)
         (a, Right sf') -> do
@@ -532,27 +546,30 @@ init q = do
       t `creditWith` 2
       force t
 
-deepR :: (MonadCredit m, Measured a v) => (Unit, Unit) -> Digit 'Ordered a -> v -> Thunk m (FLazyCon m) (FIP v (Node v a) m) -> Maybe (Digit 'Flipped a) -> m (FIP v a m)
-deepR (u1, u2) pr _ m Nothing = do
+deepR :: (MonadCredit m, Measured a v) => Unit -> Digit 'Ordered a -> v -> Thunk m (FLazyCon m) (FIP v (Node v a) m) -> Maybe (Digit 'Flipped a) -> m (FIP v a m)
+deepR u1 pr _ m Nothing = do
   when (isSafe pr) $ m `creditWith` 1
   m' <- force m
   let mi = measureInit m'
   m'' <- unsnoc m'
   case m'' of
-    Nothing -> toTree (u1, u2) pr
+    Nothing -> pure $ SDigit pr
     Just (t, l) -> do -- l is safe
       unless (isSafe pr) $ t `creditWith` 1
-      deep mi pr t (flipDigit (nodeToDigit l)) u2
-deepR (u1, _) s vm m (Just sf) = deep vm s m sf u1
+      deep mi pr t (flipDigit (nodeToDigit l)) u1
+deepR u1 s vm m (Just sf) = deep vm s m sf u1
 
 measureInit :: Measured a v
             => FIP v (Node v a) m -> v
 measureInit q = case q of
   Empty -> mempty
   Single _ -> mempty
-  Deep v pr _ sf -> measure pr <> v <> (case popBlock sf of
-    NowEmpty _ p _ -> measure (fmap flipBlock p)
-    Occupied _ d -> measure (flipDigit d))
+  SDigit d -> (case pop (flipDigit d) of
+    (_, Left u) -> mempty
+    (_, Right d') -> measure (flipDigit d'))
+  Deep v pr _ sf -> measure pr <> v <> (case pop sf of
+    (_, Left u) -> mempty
+    (_, Right sf') -> measure (flipDigit sf'))
 
 -- To make glue fip, we do the following:
 -- - The cons cells of the middle list are padded to size k
@@ -566,7 +583,7 @@ measureInit q = case q of
 -- In particular, if (Split l x r = splitTree p i t), then `concat l r` and `concat l (cons x r)`
 -- try to restore the original tree t.
 
-foldDigit :: Monad m => (b -> a -> m b) -> b -> Digit 'Ordered a -> m b
+foldDigit :: Monad m => (b -> a -> m b) -> b -> Digit o a -> m b
 foldDigit f acc d = case pop d of
   (a, Left _) -> f acc a
   (a, Right d') -> do
@@ -601,7 +618,7 @@ pushLast (Just b, Right b') = case pushBlock (blockToNode b) b' Unit of
   Safe b Unit -> b
   Dangerous b () Unit -> b
 
--- | Needs five allocations in the base case to cons/snoc.
+-- | Needs k + five allocations in the base case to cons/snoc.
 glue :: (MonadCredit m, Measured a v) => FIP v a m -> Maybe (Block a ()) -> FIP v a m -> m (FIP v a m)
 glue Empty as q2 = foldMBlock (\q a -> cons Unit a q) q2 (fmap flipBlock as)
 glue q1 as Empty = foldMBlock (snoc Unit) q1 as
@@ -611,6 +628,12 @@ glue (Single x) as q2 = do
 glue q1 as (Single y) = do
   q3 <- foldMBlock (snoc Unit) q1 as
   snoc Unit q3 y -- from Single
+glue (SDigit d1) as q2 = do
+  q3 <- foldMBlock (\q a -> cons Unit a q) q2 (fmap flipBlock as)
+  foldDigit (\q a -> cons Unit a q) q3 (flipDigit d1)
+glue q1 as (SDigit d2) = do
+  q3 <- foldMBlock (snoc Unit) q1 as
+  foldDigit (snoc Unit) q3 d2
 glue (Deep _ u1 q1 v1) as (Deep _ u2 q2 v2) = tick >> do
   creditWith q1 2
   q1 <- force q1
@@ -642,35 +665,35 @@ splitDigit p i d =
         Nothing -> fmap blockToDigit m
         Just r -> Just $ Digit (addBlock m r))
 
-mtoTree :: (MonadCredit m, Measured a v) => (Unit, Unit) -> Maybe (Digit 'Ordered a) -> m (FIP v a m)
-mtoTree (u1, u2) (Just d) = toTree (u1, u2) d
-mtoTree _ Nothing = pure Empty
+mtoTree :: (MonadCredit m, Measured a v) => Unit -> Maybe (Digit 'Ordered a) -> m (FIP v a m)
+mtoTree u m = pure $ maybe Empty SDigit m
 
 -- | Requires two allocations per recursive call: to split the digit and to create the new Deep node.
--- Our analysis is a bit imprecise and allows for two more allocations in toTree (called by deepL).
 splitTree :: (MonadCredit m, Measured a v) => (v -> Bool) -> v -> FIP v a m -> m (Split FIP v a m)
 splitTree p i Empty = fail "splitTree: empty tree"
 splitTree p i (Single x) = pure $ Split Empty x Empty -- from Single
+splitTree p i (SDigit d) = do
+  let (l, x, r) = splitDigit p i d
+  Split <$> mtoTree Unit l <*> pure x <*> mtoTree Unit r
 splitTree p i (Deep vm pr m sf) = do
   tick
   m `creditWith` 2
   let vpr = i <> measure pr
   let vprm = vpr <> vm
-  let us = (Unit, Unit)
   if p vpr then do
     let (l, x, r) = splitDigit p i pr
     ml <- vempty
-    Split <$> mtoTree us l <*> pure x <*> deepL us r vm m sf
+    Split <$> mtoTree Unit l <*> pure x <*> deepL Unit r vm m sf
   else if p vprm then do
     Split ml xs mr <- splitTree p vpr =<< force m
     [ml', mr'] <- mapM value [ml, mr]
     let (vml, vmr) = (measure ml, measure mr)
     let (l, x, r) = splitDigit p (vpr <> vml) (nodeToDigit xs)
-    Split <$> deepR us pr vml ml' (fmap flipDigit l) <*> pure x <*> deepL us r vmr mr' sf
+    Split <$> deepR Unit pr vml ml' (fmap flipDigit l) <*> pure x <*> deepL Unit r vmr mr' sf
   else do
     let (l, x, r) = splitDigit p vprm (flipDigit sf)
     mr <- vempty
-    Split <$> deepR us pr vm m (fmap flipDigit l) <*> pure x <*> mtoTree us r
+    Split <$> deepR Unit pr vm m (fmap flipDigit l) <*> pure x <*> mtoTree Unit r
 
 append :: MonadCredit m => [a] -> [a] -> m [a]
 append [] ys = pure ys
@@ -679,6 +702,7 @@ append (x : xs) ys = tick >> fmap (x:) (append xs ys)
 treeToListAcc :: MonadCredit m => [b] -> (a -> [b]) -> FIP v a m -> m [b]
 treeToListAcc acc f Empty = pure acc
 treeToListAcc acc f (Single x) = append (f x) acc
+treeToListAcc acc f (SDigit d) = append (concatMap f (digitToList d)) acc
 treeToListAcc acc f (Deep _ pr m sf) = do
   let pr' = concatMap f $ digitToList pr
   let sf' = concatMap f $ digitToList $ flipDigit sf
@@ -748,6 +772,9 @@ instance (MonadMemory m, MemoryCell m a, MemoryCell m v) => MemoryCell m (FIP v 
   prettyCell (Single a) = do
     a' <- prettyCell a
     pure $ mkMCell "Single" [a']
+  prettyCell (SDigit d) = do
+    d' <- prettyCell d
+    pure $ mkMCell "SDigit" [d']
   prettyCell (Deep v s q u) = do
     v' <- prettyCell v
     s' <- prettyCell s
