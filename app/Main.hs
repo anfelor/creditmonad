@@ -208,11 +208,14 @@ main = do
       [n, s]    -> pure (read n, read s)
       [n]       -> pure (read n, 1000)
       _         -> pure (1000,   1000)
-  let args = stdArgs { maxSuccess, maxSize, maxShrinks = maxBound, chatty = False }
+  let benchArgs = stdArgs { maxSuccess, maxSize, maxShrinks = maxBound, chatty = False }
+  let testArgs = benchArgs { maxSuccess = maxSuccess `div` 10, maxSize = maxSize `div` 10 }
+  when (maxSuccess <= 1000 && maxSize <= 100) $
+    putStrLn $ "Small test size: only reporting failed tests."
   consoleLock <- newMVar ()
-  pooledForConcurrently_ (tests args ++ benchmarks args) $ \(s,r) -> do
+  pooledForConcurrently_ (tests testArgs ++ benchmarks benchArgs) $ \(s,r) -> do
     res <- r
-    unless (isSuccess res) $
+    unless (isSuccess res && (maxSuccess <= 1000 && maxSize <= 100)) $
       withMVar consoleLock $ const $ putStrLn $ s ++ "\n" ++ output res
 
 -- Categorization of implementations:
