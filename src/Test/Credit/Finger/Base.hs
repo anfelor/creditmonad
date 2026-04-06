@@ -35,6 +35,9 @@ instance (Measured a v, Measured b v, Measured c v, Measured d v, Measured e v) 
 instance (Measured a v, Measured b v, Measured c v, Measured d v, Measured e v, Measured f v) => Measured (a, b, c, d, e, f) v where
   measure (a, b, c, d, e, f) = measure a <> measure b <> measure c <> measure d <> measure e <> measure f
 
+instance (Measured a v, Measured b v, Measured c v, Measured d v, Measured e v, Measured f v, Measured g v) => Measured (a, b, c, d, e, f, g) v where
+  measure (a, b, c, d, e, f, g) = measure a <> measure b <> measure c <> measure d <> measure e <> measure f <> measure g
+
 instance (Measured a v, Measured b v) => Measured (Either a b) v where
   measure (Left x) = measure x
   measure (Right y) = measure y

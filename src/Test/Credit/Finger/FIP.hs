@@ -4,6 +4,8 @@ module Test.Credit.Finger.FIP where
 
 import Prelude hiding (head, tail, last, init)
 import Control.Monad (when, unless)
+import Data.Maybe (isJust)
+import Data.Either (isLeft)
 
 import Control.Monad.Credit
 import Test.Credit (linear, log2)
@@ -96,14 +98,14 @@ import qualified Test.Credit.Finger.Base as F
 -- This is bound to happen whenever A is more space efficient
 -- than B and C by virtue of being larger.
 
--- This part is specific to the block size k = 5
+-- This part is specific to the block size k = 6
 
--- | Size 6 space credit
+-- | Size 7 space credit
 data Unit = Unit
   deriving (Eq, Ord, Show)
 
 -- | Contains 1..k elements, stored in reverse order
-data Block a p = One p a | Two p a a | Three p a a a | Four p a a a a | Five p a a a a a
+data Block a p = One p a | Two p a a | Three p a a a | Four p a a a a | Five p a a a a a | Six p a a a a a a
   deriving (Eq, Ord, Show)
 
 instance (Measured a v, Measured p v) => Measured (Block a p) v where
@@ -112,13 +114,7 @@ instance (Measured a v, Measured p v) => Measured (Block a p) v where
   measure (Three p c b a) = measure (a, b, c, p)
   measure (Four p d c b a) = measure (a, b, c, d, p)
   measure (Five p e d c b a) = measure (a, b, c, d, e, p)
-
-blockToList :: Block a () -> [a]
-blockToList (One () a) = [a]
-blockToList (Two () b a) = [a, b]
-blockToList (Three () c b a) = [a, b, c]
-blockToList (Four () d c b a) = [a, b, c, d]
-blockToList (Five () e d c b a) = [a, b, c, d, e]
+  measure (Six p f e d c b a) = measure (a, b, c, d, e, f, p)
 
 addBlock :: p -> Block a () -> Block a p
 addBlock m (One () a) = One m a
@@ -126,6 +122,7 @@ addBlock m (Two () b a) = Two m b a
 addBlock m (Three () c b a) = Three m c b a
 addBlock m (Four () d c b a) = Four m d c b a
 addBlock m (Five () e d c b a) = Five m e d c b a
+addBlock m (Six () f e d c b a) = Six m f e d c b a
 
 breakBlock :: Block a p -> (Block a (), p)
 breakBlock (One m a) = (One () a, m)
@@ -133,6 +130,7 @@ breakBlock (Two m b a) = (Two () b a, m)
 breakBlock (Three m c b a) = (Three () c b a, m)
 breakBlock (Four m d c b a) = (Four () d c b a, m)
 breakBlock (Five m e d c b a) = (Five () e d c b a, m)
+breakBlock (Six m f e d c b a) = (Six () f e d c b a, m)
 
 flipBlock :: Block a () -> Block a ()
 flipBlock (One () a) = One () a
@@ -140,94 +138,33 @@ flipBlock (Two () b a) = Two () a b
 flipBlock (Three () c b a) = Three () a b c
 flipBlock (Four () d c b a) = Four () a b c d
 flipBlock (Five () e d c b a) = Five () a b c d e
-
--- | A digit is unsafe if push or pop can cause it to become empty or overflow.
-isSafe :: Digit o a -> Bool
-isSafe (Digit (One Nothing _)) = False
-isSafe (Digit (Four (Just _) _ _ _ _)) = False
-isSafe _ = True
-
-isFull :: Block a () -> Bool
-isFull (Five () _ _ _ _ _) = True
-isFull _ = False
+flipBlock (Six () f e d c b a) = Six () a b c d e f
 
 singleton :: Unit -> a -> Block a ()
 singleton _ a = One () a
-
-doubleton :: Unit -> a -> a -> Block a ()
-doubleton _ a b = Two () b a
 
 isOne :: Block a () -> Either (a, Unit) (Block a ())
 isOne (One () a) = Left (a, Unit)
 isOne b = Right b
 
--- | Split a block into two: requires up to one allocation.
-splitBlock :: Measured a v => (v -> Bool) -> v -> Block a () -> (Maybe (Block a ()), a, Maybe (Block a ()))
-splitBlock p i (One () a) = (Nothing, a, Nothing)
-splitBlock p i (Two () b a)
-  | p (i <> measure a) = (Nothing, a, Just (One () b))
-  | otherwise = (Just (One () a), b, Nothing)
-splitBlock p i (Three () c b a)
-  | p (i <> measure a) = (Nothing, a, Just (Two () c b))
-  | p (i <> measure (a, b)) = (Just (One () a), b, Just (One () c))
-  | otherwise = (Just (Two () b a), c, Nothing)
-splitBlock p i (Four () d c b a)
-  | p (i <> measure a) = (Nothing, a, Just (Three () d c b))
-  | p (i <> measure (a, b)) = (Just (One () a), b, Just (Two () d c))
-  | p (i <> measure (a, b, c)) = (Just (Two () b a), c, Just (One () d))
-  | otherwise = (Just (Three () c b a), d, Nothing)
-splitBlock p i (Five () e d c b a)
-  | p (i <> measure a) = (Nothing, a, Just (Four () e d c b))
-  | p (i <> measure (a, b)) = (Just (One () a), b, Just (Three () e d c))
-  | p (i <> measure (a, b, c)) = (Just (Two () b a), c, Just (Two () e d))
-  | p (i <> measure (a, b, c, d)) = (Just (Three () c b a), d, Just (One () e))
-  | otherwise = (Just (Four () d c b a), e, Nothing)
+-- | A block is dangerous if push can cause it to overflow.
+isDangerous :: Block a p -> Bool
+isDangerous (Five _ _ _ _ _ _) = True
+isDangerous _ = False
 
--- | Shift elements from the first into the second block.
--- Return up to one partly filled block and up to one fully filled block.
--- TODO: Can we have reduce the number of cases here?
-shiftL :: Block a () -> Block a () -> (Maybe (Block a ()), Maybe (Block a ()))
-shiftL (One () a) (Five () f e d c b) = (Just $ One () a, Just $ Five () f e d c b)
-shiftL a (Five () f e d c b) = (Just a, Just $ Five () f e d c b)
-shiftL (One () a) (One () b) = (Just $ Two () b a, Nothing)
-shiftL (One () a) (Two () c b) = (Just $ Three () c b a, Nothing)
-shiftL (One () a) (Three () d c b) = (Just $ Four () d c b a, Nothing)
-shiftL (One () a) (Four () e d c b) = (Nothing, Just $ Five () e d c b a)
-shiftL (Two () b a) (One () c) = (Just $ Three () c b a, Nothing)
-shiftL (Two () b a) (Two () d c) = (Just $ Four () d c b a, Nothing)
-shiftL (Two () b a) (Three () e d c) = (Nothing, Just $ Five () e d c b a)
-shiftL (Two () b a) (Four () f e d c) = (Just $ One () a, Just $ Five () f e d c b)
-shiftL (Three () c b a) (One () d) = (Just $ Four () d c b a, Nothing)
-shiftL (Three () c b a) (Two () e d) = (Nothing, Just $ Five () e d c b a)
-shiftL (Three () c b a) (Three () f e d) = (Just $ One () a, Just $ Five () f e d c b)
-shiftL (Three () c b a) (Four () g f e d) = (Just $ Two () b a, Just $ Five () g f e d c)
-shiftL (Four () d c b a) (One () e) = (Nothing, Just $ Five () e d c b a)
-shiftL (Four () d c b a) (Two () f e) = (Just $ One () a, Just $ Five () f e d c b)
-shiftL (Four () d c b a) (Three () g f e) = (Just $ Two () b a, Just $ Five () g f e d c)
-shiftL (Four () d c b a) (Four () h g f e) = (Just $ Three () c b a, Just $ Five () h g f e d)
-shiftL (Five () e d c b a) (One () f) = (Just $ One () a, Just $ Five () f e d c b)
-shiftL (Five () e d c b a) (Two () g f) = (Just $ Two () b a, Just $ Five () g f e d c)
-shiftL (Five () e d c b a) (Three () h g f) = (Just $ Three () c b a, Just $ Five () h g f e d)
-shiftL (Five () e d c b a) (Four () i h g f) = (Just $ Four () d c b a, Just $ Five () i h g f e)
+isFull :: Block a p -> Bool
+isFull (Six _ _ _ _ _ _ _) = True
+isFull _ = False
 
 overfill :: Unit -> a -> Block a () -> (Block a (), Block a ())
-overfill u x (Five () e d c b a) = (Three () b a x, Three () e d c)
+overfill u x (Six () f e d c b a) = (Three () b a x, Four () f e d c)
 
--- | Pushing works as follows:
---   - If a block has less than k elements, it is safe.
---   - If a block has k elements, it is dangerous.
---     We need to push out the other block in the digit.
---   - If a block is full, we create a new node
--- This type should be unboxed.
-data PushState a p = Safe (Block a p) Unit | Dangerous (Block a p) Unit | Full (Block a p) (Block a ())
-  deriving (Eq, Ord, Show)
-
-pushBlock :: a -> Block a p -> Unit -> PushState a p
-pushBlock x (One p a) u = Safe (Two p a x) u
-pushBlock x (Two p b a) u = Safe (Three p b a x) u
-pushBlock x (Three p c b a) u = Safe (Four p c b a x) u
-pushBlock x (Four p d c b a) u = Dangerous (Five p d c b a x) u
-pushBlock x (Five p e d c b a) _ = Full (Five p e d c b a) (One () x)
+pushBlock :: a -> Block a p -> Block a p
+pushBlock x (One p a) = Two p a x
+pushBlock x (Two p b a) = Three p b a x
+pushBlock x (Three p c b a) = Four p c b a x
+pushBlock x (Four p d c b a) = Five p d c b a x
+pushBlock x (Five p e d c b a) = Six p e d c b a x
 
 -- This type should be unboxed.
 data PopState a p = NowEmpty a p Unit | Occupied a (Block a p)
@@ -239,15 +176,48 @@ popBlock (Two p b a) = Occupied a (One p b)
 popBlock (Three p c b a) = Occupied a (Two p c b)
 popBlock (Four p d c b a) = Occupied a (Three p d c b)
 popBlock (Five p e d c b a) = Occupied a (Four p e d c b)
+popBlock (Six p f e d c b a) = Occupied a (Five p f e d c b)
 
 -- This part is independent of the block size k
 
--- FIPness constraints:
--- - singleton may use one space credit
--- - pop needs to return a space credit with empty digit
--- - nodeToDigit may not use space credits
--- - toTree may use one space credit
--- - to make glue fip, we may never have fully filled digits
+doubleton :: Unit -> a -> a -> Block a ()
+doubleton u a b = pushBlock a (singleton u b)
+
+-- | Split a block into two: requires up to one allocation.
+splitBlock :: Measured a v => (v -> Bool) -> v -> Block a () -> (Maybe (Block a ()), a, Maybe (Block a ()))
+splitBlock p i = go Nothing i
+  where
+    snocLeft :: a -> Maybe (Block a ()) -> Maybe (Block a ())
+    snocLeft x Nothing = Just $ singleton Unit x -- needs allocation
+    snocLeft x (Just b) = Just $ pushBlock x b
+
+    go left j block = case popBlock block of
+      NowEmpty x _ _ -> (flipBlock <$> left, x, Nothing)
+      Occupied x rest
+        | p (j <> measure x) -> (flipBlock <$> left, x, Just rest)
+        | otherwise -> go (snocLeft x left) (j <> measure x) rest
+
+-- | Shift elements from the first into the second block.
+-- Return up to one partly filled block and up to one fully filled block.
+shiftL :: Block a () -> Block a () -> (Maybe (Block a ()), Maybe (Block a ()))
+shiftL a b = if isFull b then (Just a, Just b) else go (flipBlock a) b
+  where
+    go a b = case popBlock a of
+      NowEmpty x _ _ ->
+          let b' = pushBlock x b in
+          if isFull b'
+            then (Nothing, Just b')
+            else (Just b', Nothing)
+      Occupied x a' ->
+        let b' = pushBlock x b in
+        if isFull b'
+          then (Just (flipBlock a'), Just b')
+          else go a' b'
+
+blockToList :: Block a () -> [a]
+blockToList b = case popBlock b of
+  NowEmpty x _ _ -> [x]
+  Occupied x rest -> x : blockToList rest
 
 data Orientation = Ordered | Flipped
 
@@ -269,6 +239,12 @@ mkDigit b (Just m) =
     (Nothing, Just m') -> Digit $ addBlock Nothing m'
     (Just b', m') -> Digit $ addBlock m' b'
 
+-- | A digit is unsafe if push or pop can cause it to become empty or overflow.
+isSafe :: Digit o a -> Bool
+isSafe (Digit d) =
+  let (b, m) = breakBlock d in
+  not (isLeft $ isOne b) && not (isDangerous b && isJust m)
+
 flipDigit :: Digit o a -> Digit (Flip o) a
 flipDigit d = let (b, m) = breakBlock (unDigit d) in go (flipBlock b) m
   where
@@ -280,14 +256,18 @@ blockToDigit b = Digit (addBlock Nothing b)
 
 -- | Push takes a space credit and may return a node
 push :: a -> Digit o a -> Unit -> (Digit o a, Maybe (Block a (), Unit))
-push x d u = case pushBlock x (unDigit d) u of
-  Safe d _ -> (Digit d, Nothing)
-  Dangerous d u ->
-    let (b, m) = breakBlock d in
-    (blockToDigit b, (,u) <$> m)
-  Full d d' ->
-    let (d'', Nothing) = breakBlock d in
-    (Digit (addBlock (Just d'') d'), Nothing)
+push x (Digit d) u =
+  if isFull d
+    then
+      let (d', Nothing) = breakBlock d in
+      (Digit $ addBlock (Just d') (singleton u x), Nothing)
+    else
+      let d' = pushBlock x d in
+      if isFull d'
+        then
+          let (b, m) = breakBlock d' in
+          (blockToDigit b, (,u) <$> m)
+        else (Digit d', Nothing)
 
 headDigit :: Digit o a -> a
 headDigit d = case popBlock (unDigit d) of
@@ -328,7 +308,7 @@ nodeToDigit = blockToDigit . nodeToBlock
 nodeToList :: Node v a -> [a]
 nodeToList = blockToList . nodeToBlock
 
--- | Pad all to four elements
+-- | Pad all to k elements
 data FIP v a m
   = Empty
   | Single a
@@ -619,13 +599,6 @@ foldMBlock :: Monad m => (b -> a -> m b) -> b -> Maybe (Block a ()) -> m b
 foldMBlock f acc Nothing = pure acc
 foldMBlock f acc (Just b) = foldDigit f acc (blockToDigit b)
 
--- | Push an element into the block and assert that no overflow occurs.
--- This does not have to allocate.
-unsafePush :: a -> Block a () -> Block a ()
-unsafePush n b = case pushBlock n b Unit of
-  Safe b Unit -> b
-  Dangerous b Unit -> b
-
 pushShifted :: Measured a v => Maybe (Block a ()) -> (Maybe (Block a ()), Either Unit (Block (Node v a) ())) -> (Maybe (Block a ()), Either Unit (Block (Node v a) ()))
 pushShifted Nothing (Nothing, e) = (Nothing, e)
 pushShifted Nothing ((Just b), e) = (Just b, e)
@@ -639,7 +612,7 @@ pushShifted (Just b) ((Just b'), e) =
       Left Unit -> Right $ singleton Unit $ blockToNode ff
       -- Push into the existing block:
       -- (this succeeds as we have at most 5 elements)
-      Right b -> Right $ unsafePush (blockToNode ff) b)
+      Right b -> Right $ pushBlock (blockToNode ff) b)
 
 pushLast :: Measured a v => (Maybe (Block a ()), Either Unit (Block (Node v a) ())) -> Block (Node v a) ()
 pushLast (Nothing, Right b) = b
@@ -653,8 +626,8 @@ pushLast (Just b, Right b') = case isOne b of
       doubleton u2 (blockToNode a') (blockToNode n')
     Occupied n b'' ->
       let (a', n') = overfill u1 a (nodeToBlock n) in
-      unsafePush (blockToNode a') $ unsafePush (blockToNode n') b''
-  Right b -> unsafePush (blockToNode b) b'
+      pushBlock (blockToNode a') $ pushBlock (blockToNode n') b''
+  Right b -> pushBlock (blockToNode b) b'
 
 -- | Needs k + five allocations in the base case to cons/snoc.
 glue :: (MonadCredit m, Measured a v) => FIP v a m -> Maybe (Block a ()) -> FIP v a m -> m (FIP v a m)
@@ -780,6 +753,15 @@ instance (MemoryCell m a, MemoryCell m p) => MemoryCell m (Block a p) where
     e' <- prettyCell e
     p' <- prettyCell p
     pure $ mkMCell "Five" [p', a', b', c', d', e']
+  prettyCell (Six p f e d c b a) = do
+    a' <- prettyCell a
+    b' <- prettyCell b
+    c' <- prettyCell c
+    d' <- prettyCell d
+    e' <- prettyCell e
+    f' <- prettyCell f
+    p' <- prettyCell p
+    pure $ mkMCell "Six" [p', a', b', c', d', e', f']
 
 instance (MonadMemory m, MemoryCell m a) => MemoryCell m (Digit 'Ordered a) where
   prettyCell = prettyCell . unDigit
