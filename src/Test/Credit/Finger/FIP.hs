@@ -120,26 +120,6 @@ blockToList (Three () c b a) = [a, b, c]
 blockToList (Four () d c b a) = [a, b, c, d]
 blockToList (Five () e d c b a) = [a, b, c, d, e]
 
-data Orientation = Ordered | Flipped
-
-type family Flip (o :: Orientation) :: Orientation where
-  Flip 'Ordered = 'Flipped
-  Flip 'Flipped = 'Ordered
-
-newtype Digit (o :: Orientation) a = Digit { unDigit :: Block a (Maybe (Block a ())) }
-  deriving (Eq, Ord, Show)
-
-instance (Measured a v) => Measured (Digit 'Ordered a) v where
-  measure = measure . unDigit
-
-mkDigit :: Block a () -> Maybe (Block a ()) -> Digit o a
-mkDigit b Nothing = Digit $ addBlock Nothing b
-mkDigit b (Just m) =
-  let (b', m') = shiftL b m
-  in case (b', m') of
-    (Nothing, Just m') -> Digit $ addBlock Nothing m'
-    (Just b', m') -> Digit $ addBlock m' b'
-
 addBlock :: p -> Block a () -> Block a p
 addBlock m (One () a) = One m a
 addBlock m (Two () b a) = Two m b a
@@ -161,17 +141,25 @@ flipBlock (Three () c b a) = Three () a b c
 flipBlock (Four () d c b a) = Four () a b c d
 flipBlock (Five () e d c b a) = Five () a b c d e
 
-flipDigit :: Digit o a -> Digit (Flip o) a
-flipDigit d = let (b, m) = breakBlock (unDigit d) in go (flipBlock b) m
-  where
-    go b Nothing = blockToDigit b
-    go b (Just m) = mkDigit (flipBlock m) (Just b)
-
 -- | A digit is unsafe if push or pop can cause it to become empty or overflow.
 isSafe :: Digit o a -> Bool
 isSafe (Digit (One Nothing _)) = False
 isSafe (Digit (Four (Just _) _ _ _ _)) = False
 isSafe _ = True
+
+isFull :: Block a () -> Bool
+isFull (Five () _ _ _ _ _) = True
+isFull _ = False
+
+singleton :: Unit -> a -> Block a ()
+singleton _ a = One () a
+
+doubleton :: Unit -> a -> a -> Block a ()
+doubleton _ a b = Two () b a
+
+isOne :: Block a () -> Either (a, Unit) (Block a ())
+isOne (One () a) = Left (a, Unit)
+isOne b = Right b
 
 -- | Split a block into two: requires up to one allocation.
 splitBlock :: Measured a v => (v -> Bool) -> v -> Block a () -> (Maybe (Block a ()), a, Maybe (Block a ()))
@@ -225,25 +213,21 @@ shiftL (Five () e d c b a) (Four () i h g f) = (Just $ Four () d c b a, Just $ F
 overfill :: Unit -> a -> Block a () -> (Block a (), Block a ())
 overfill u x (Five () e d c b a) = (Three () b a x, Three () e d c)
 
-isFull :: Block a () -> Bool
-isFull (Five () _ _ _ _ _) = True
-isFull _ = False
-
 -- | Pushing works as follows:
 --   - If a block has less than k elements, it is safe.
 --   - If a block has k elements, it is dangerous.
 --     We need to push out the other block in the digit.
 --   - If a block is full, we create a new node
 -- This type should be unboxed.
-data PushState o a p = Safe (Block a p) Unit | Dangerous (Block a ()) p Unit | Full (Digit o a)
+data PushState a p = Safe (Block a p) Unit | Dangerous (Block a p) Unit | Full (Block a p) (Block a ())
   deriving (Eq, Ord, Show)
 
-pushBlock :: a -> Block a p -> Unit -> PushState o a p
+pushBlock :: a -> Block a p -> Unit -> PushState a p
 pushBlock x (One p a) u = Safe (Two p a x) u
 pushBlock x (Two p b a) u = Safe (Three p b a x) u
 pushBlock x (Three p c b a) u = Safe (Four p c b a x) u
-pushBlock x (Four p d c b a) u = Dangerous (Five () d c b a x) p u
-pushBlock x (Five _ e d c b a) _ = Full (Digit (One (Just (Five () e d c b a)) x))
+pushBlock x (Four p d c b a) u = Dangerous (Five p d c b a x) u
+pushBlock x (Five p e d c b a) _ = Full (Five p e d c b a) (One () x)
 
 -- This type should be unboxed.
 data PopState a p = NowEmpty a p Unit | Occupied a (Block a p)
@@ -265,36 +249,45 @@ popBlock (Five p e d c b a) = Occupied a (Four p e d c b)
 -- - toTree may use one space credit
 -- - to make glue fip, we may never have fully filled digits
 
--- | Contains 1..k elements
-newtype Node v a = Node (Block a v)
+data Orientation = Ordered | Flipped
+
+type family Flip (o :: Orientation) :: Orientation where
+  Flip 'Ordered = 'Flipped
+  Flip 'Flipped = 'Ordered
+
+newtype Digit (o :: Orientation) a = Digit { unDigit :: Block a (Maybe (Block a ())) }
   deriving (Eq, Ord, Show)
 
-instance Measured a v => Measured (Node v a) v where
-  measure (Node b) = snd $ breakBlock b
+instance (Measured a v) => Measured (Digit 'Ordered a) v where
+  measure = measure . unDigit
+
+mkDigit :: Block a () -> Maybe (Block a ()) -> Digit o a
+mkDigit b Nothing = Digit $ addBlock Nothing b
+mkDigit b (Just m) =
+  let (b', m') = shiftL b m
+  in case (b', m') of
+    (Nothing, Just m') -> Digit $ addBlock Nothing m'
+    (Just b', m') -> Digit $ addBlock m' b'
+
+flipDigit :: Digit o a -> Digit (Flip o) a
+flipDigit d = let (b, m) = breakBlock (unDigit d) in go (flipBlock b) m
+  where
+    go b Nothing = blockToDigit b
+    go b (Just m) = mkDigit (flipBlock m) (Just b)
 
 blockToDigit :: Block a () -> Digit o a
 blockToDigit b = Digit (addBlock Nothing b)
-
-nodeToBlock :: Node v a -> Block a ()
-nodeToBlock (Node b) = fst $ breakBlock b
-
-blockToNode :: Measured a v => Block a () -> Node v a
-blockToNode (One () a) = undefined
-blockToNode b = Node (addBlock (measure b) b)
-
-singleton :: Unit -> a -> Digit o a
-singleton _ a = Digit (One Nothing a)
-
-doubleton :: Unit -> a -> a -> Digit o a
-doubleton _ a b = Digit (Two Nothing b a)
 
 -- | Push takes a space credit and may return a node
 push :: a -> Digit o a -> Unit -> (Digit o a, Maybe (Block a (), Unit))
 push x d u = case pushBlock x (unDigit d) u of
   Safe d _ -> (Digit d, Nothing)
-  Dangerous d Nothing u -> (blockToDigit d, Nothing)
-  Dangerous d (Just b) u -> (blockToDigit d, Just (b, u))
-  Full d -> (d, Nothing)
+  Dangerous d u ->
+    let (b, m) = breakBlock d in
+    (blockToDigit b, (,u) <$> m)
+  Full d d' ->
+    let (d'', Nothing) = breakBlock d in
+    (Digit (addBlock (Just d'') d'), Nothing)
 
 headDigit :: Digit o a -> a
 headDigit d = case popBlock (unDigit d) of
@@ -313,6 +306,21 @@ digitToList :: Digit 'Ordered a -> [a]
 digitToList d =
   let (b, m) = breakBlock (unDigit d) in
   blockToList b ++ maybe [] blockToList m
+
+-- | Contains 1..k elements
+newtype Node v a = Node (Block a v)
+  deriving (Eq, Ord, Show)
+
+instance Measured a v => Measured (Node v a) v where
+  measure (Node b) = snd $ breakBlock b
+
+nodeToBlock :: Node v a -> Block a ()
+nodeToBlock (Node b) = fst $ breakBlock b
+
+blockToNode :: Measured a v => Block a () -> Node v a
+blockToNode b = case isOne b of
+  Left _ -> undefined -- fail "blockToNode: block should have more than one element"
+  Right b -> Node (addBlock (measure b) b)
 
 nodeToDigit :: Node v a -> Digit 'Ordered a
 nodeToDigit = blockToDigit . nodeToBlock
@@ -410,8 +418,8 @@ cons u1 a q = do
   tick
   case q of
     Empty -> pure $ Single a
-    Single b -> pure $ SDigit (doubleton u1 a b) -- at Single
-    SDigit d -> deep' mempty (singleton u1 a) vempty (flipDigit d) Unit -- at SDigit
+    Single b -> pure $ SDigit (blockToDigit $ doubleton u1 a b) -- at Single
+    SDigit d -> deep' mempty (blockToDigit $ singleton u1 a) vempty (flipDigit d) Unit -- at SDigit
     Deep vm pr m sf ->
       case push a pr Unit of -- Unit from Deep
         (pr', Nothing) -> do
@@ -483,18 +491,18 @@ deepL u1 Nothing _ m sf = do
       deep mt pr t sf u1
 deepL u1 (Just pr) vm m sf = deep vm pr m sf u1
 
+-- | Measure a digit after removing the front element
+measureAfterPop :: Measured a v => Digit 'Ordered a -> v
+measureAfterPop d = case pop d of
+  (_, Left _) -> mempty
+  (_, Right d') -> measure d'
+
 -- | FIP if it takes its argument as borrowed and returns int
-measureTail :: Measured a v
-            => FIP v (Node v a) m -> v
-measureTail q = case q of
-  Empty -> mempty
-  Single _ -> mempty
-  SDigit d -> (case pop d of
-    (_, Left u) -> mempty
-    (_, Right d') -> measure d') 
-  Deep v pr _ sf -> (case pop pr of
-    (_, Left u) -> mempty
-    (_, Right pr') -> measure pr') <> v <> measure (flipDigit sf)
+measureTail :: Measured a v => FIP v (Node v a) m -> v
+measureTail Empty = mempty
+measureTail (Single _) = mempty
+measureTail (SDigit d) = measureAfterPop d
+measureTail (Deep v pr _ sf) = measureAfterPop pr <> v <> measure (flipDigit sf)
 
 snoc :: (MonadCredit m, Measured a v)
      => Unit -> FIP v a m -> a -> m (FIP v a m)
@@ -502,8 +510,8 @@ snoc u1 q e = do
   tick
   case q of
     Empty -> pure $ Single e -- at u1
-    Single a -> pure $ SDigit (doubleton u1 a e) -- at Single
-    SDigit d -> deep' mempty d vempty (singleton u1 e) Unit -- at SDigit
+    Single a -> pure $ SDigit (blockToDigit $ doubleton u1 a e) -- at Single
+    SDigit d -> deep' mempty d vempty (blockToDigit $ singleton u1 e) Unit -- at SDigit
     Deep vm pr m sf ->
       case push e sf Unit of -- from Deep
         (sf', Nothing) -> do
@@ -560,7 +568,8 @@ init q = do
       t `creditWith` 2
       force t
 
-deepR :: (MonadCredit m, Measured a v) => Unit -> Digit 'Ordered a -> v -> Thunk m (FLazyCon m) (FIP v (Node v a) m) -> Maybe (Digit 'Flipped a) -> m (FIP v a m)
+deepR :: (MonadCredit m, Measured a v)
+      => Unit -> Digit 'Ordered a -> v -> Thunk m (FLazyCon m) (FIP v (Node v a) m) -> Maybe (Digit 'Flipped a) -> m (FIP v a m)
 deepR u1 pr _ m Nothing = do
   when (isSafe pr) $ m `creditWith` 1
   m' <- force m
@@ -575,17 +584,17 @@ deepR u1 pr _ m Nothing = do
       deep mi pr t sf u1
 deepR u1 s vm m (Just sf) = deep vm s m sf u1
 
-measureInit :: Measured a v
-            => FIP v (Node v a) m -> v
-measureInit q = case q of
-  Empty -> mempty
-  Single _ -> mempty
-  SDigit d -> (case pop (flipDigit d) of
-    (_, Left u) -> mempty
-    (_, Right d') -> measure (flipDigit d'))
-  Deep v pr _ sf -> measure pr <> v <> (case pop sf of
-    (_, Left u) -> mempty
-    (_, Right sf') -> measure (flipDigit sf'))
+-- | Measure a digit after removing the back element
+measureAfterPopBack :: Measured a v => Digit 'Ordered a -> v
+measureAfterPopBack d = case pop (flipDigit d) of
+  (_, Left _) -> mempty
+  (_, Right d') -> measure (flipDigit d')
+
+measureInit :: Measured a v => FIP v (Node v a) m -> v
+measureInit Empty = mempty
+measureInit (Single _) = mempty
+measureInit (SDigit d) = measureAfterPopBack d
+measureInit (Deep v pr _ sf) = measure pr <> v <> measureAfterPopBack (flipDigit sf)
 
 -- To make glue fip, we do the following:
 -- - The cons cells of the middle list are padded to size k
@@ -615,7 +624,7 @@ foldMBlock f acc (Just b) = foldDigit f acc (blockToDigit b)
 unsafePush :: a -> Block a () -> Block a ()
 unsafePush n b = case pushBlock n b Unit of
   Safe b Unit -> b
-  Dangerous b () Unit -> b
+  Dangerous b Unit -> b
 
 pushShifted :: Measured a v => Maybe (Block a ()) -> (Maybe (Block a ()), Either Unit (Block (Node v a) ())) -> (Maybe (Block a ()), Either Unit (Block (Node v a) ()))
 pushShifted Nothing (Nothing, e) = (Nothing, e)
@@ -627,23 +636,25 @@ pushShifted (Just b) ((Just b'), e) =
     Nothing -> e
     Just ff -> case e of
       -- Create a singleton block:
-      Left Unit -> Right (One () (blockToNode ff))
+      Left Unit -> Right $ singleton Unit $ blockToNode ff
       -- Push into the existing block:
       -- (this succeeds as we have at most 5 elements)
       Right b -> Right $ unsafePush (blockToNode ff) b)
 
 pushLast :: Measured a v => (Maybe (Block a ()), Either Unit (Block (Node v a) ())) -> Block (Node v a) ()
 pushLast (Nothing, Right b) = b
-pushLast (Just (One () a), Left _) = undefined
-pushLast (Just b, Left _) = One () (blockToNode b)
-pushLast (Just (One () a), Right b') = case popBlock b' of
-  NowEmpty n () Unit ->
-    let (a', n') = overfill Unit a (nodeToBlock n) in -- from One
-    Two () (blockToNode n') (blockToNode a') -- from NowEmpty
-  Occupied n b'' ->
-    let (a', n') = overfill Unit a (nodeToBlock n) in -- from One
-    unsafePush (blockToNode a') $ unsafePush (blockToNode n') b''
-pushLast (Just b, Right b') = unsafePush (blockToNode b) b'
+pushLast (Just b, Left _) = case isOne b of
+  Left (a, Unit) -> undefined
+  Right b -> singleton Unit $ blockToNode b
+pushLast (Just b, Right b') = case isOne b of
+  Left (a, u1) -> case popBlock b' of
+    NowEmpty n () u2 ->
+      let (a', n') = overfill u1 a (nodeToBlock n) in
+      doubleton u2 (blockToNode a') (blockToNode n')
+    Occupied n b'' ->
+      let (a', n') = overfill u1 a (nodeToBlock n) in
+      unsafePush (blockToNode a') $ unsafePush (blockToNode n') b''
+  Right b -> unsafePush (blockToNode b) b'
 
 -- | Needs k + five allocations in the base case to cons/snoc.
 glue :: (MonadCredit m, Measured a v) => FIP v a m -> Maybe (Block a ()) -> FIP v a m -> m (FIP v a m)
@@ -661,13 +672,13 @@ glue (SDigit d1) as q2 = do
 glue q1 as (SDigit d2) = do
   q3 <- foldMBlock (snoc Unit) q1 as
   foldDigit (snoc Unit) q3 d2
-glue (Deep _ u1 q1 v1) as (Deep _ u2 q2 v2) = tick >> do
-  creditWith q1 2
-  q1 <- force q1
-  creditWith q2 2
-  q2 <- force q2
-  let (a, b) = breakBlock $ unDigit (flipDigit v1)
-  let (d, e) = breakBlock $ unDigit u2
+glue (Deep v1 pr1 m1 sf1) as (Deep v2 pr2 m2 sf2) = tick >> do
+  creditWith m1 2
+  m1 <- force m1
+  creditWith m2 2
+  m2 <- force m2
+  let (a, b) = breakBlock $ unDigit (flipDigit sf1)
+  let (d, e) = breakBlock $ unDigit pr2
   let as' = pushLast $
               pushShifted (Just a) $
               pushShifted b $
@@ -675,8 +686,8 @@ glue (Deep _ u1 q1 v1) as (Deep _ u2 q2 v2) = tick >> do
               pushShifted (Just d) $
               pushShifted e $
               (Nothing, Left Unit) -- from first Deep
-  q <- glue q1 (Just as') q2
-  deep' (measure q) u1 (value q) v2 Unit -- from second Deep
+  q <- glue m1 (Just as') m2
+  deep' (v1 <> measure as' <> v2) pr1 (value q) sf2 Unit -- from second Deep
 
 -- | Split one digit into two: requires up to one allocation.
 splitDigit :: Measured a v => (v -> Bool) -> v -> Digit 'Ordered a -> (Maybe (Digit 'Ordered a), a, Maybe (Digit 'Ordered a))
