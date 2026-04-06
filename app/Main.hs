@@ -217,35 +217,3 @@ main = do
     res <- r
     unless (isSuccess res && (maxSuccess <= 1000 && maxSize <= 100)) $
       withMVar consoleLock $ const $ putStrLn $ s ++ "\n" ++ output res
-
--- Categorization of implementations:
-
--- Passing static credits to static reference:
---  - Realtime Queue (Section 7.2)
---  - Realtime Deque (Section 8.4.3)
---  - Scheduled Binomial Heaps (Section 7.3)
---  - Scheduled Mergesort (Section 7.4)
-
--- Passing static credits to dynamic reference:
---  - Implicit Queue (Section 11.1)
---  - Binary Random Access List (Section 9.2.3)
---  - Zeroless Random Access List (Section 9.2.3)
---  - Finger Tree
---  - Simple Catenable Deque (Section 11.2)
---  - Implicit Catenable Deque (Section 11.2)
-
--- Passing dynamic credits to static reference:
---  - Binomial Heaps (Section 6.4.1)
---  - Lazy Pairing Heaps (Section 6.5)
---  - Bottom-up Mergesort (Section 6.4.3)
-
--- Passing static credits to ghost reference:
---  - Bootstrapped Queue (Section 10.1.3)
---  - Physicists Queue (Section 6.4.2)
-
--- Requires extra traversal:
---  - Catenable List (Section 10.2.1)
-
--- Needs Credit Inheritance:
---  - Bankers Queue (Section 6.3.2)
---  - Bankers Deque (Section 8.4.2)
