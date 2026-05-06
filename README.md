@@ -2,7 +2,7 @@ A Haskell DSL for testing the amortised time complexity of data structures in a 
 For a high-level description of the library, please see
 [Lightweight Testing of Persistent Amortized Time Complexity in the Credit Monad (Haskell Symposium 2025)](https://antonlorenzen.de/papers/creditmonad.pdf).
 For formal proofs of correctness, see
-[Persistent Amortized Analysis, Operationally (Draft 2026)](https://antonlorenzen.de/papers/persistence-credits.pdf).
+[Persistent Amortised Analysis, Operationally (ICALP 2026)](https://antonlorenzen.de/papers/persistence-credits.pdf).
 
 To test our implementations of the data structures, run:
 
@@ -39,11 +39,19 @@ From *Purely Functional Data Structures. Chris Okasaki. Cambridge University Pre
  * `Test.Credit.Deque.SimpleCat` (Section 11.2)
  * `Test.Credit.Deque.ImplicitCat` (Section 11.2)
 
-Other data structures:
+From *Finger trees: a simple general-purpose data structure. Ralf Hinze and Ross Paterson. JFP 2006*:
 
- * `Test.Credit.Finger.Original` (Finger trees: a simple general-purpose data structure. Ralf Hinze and Ross Paterson. JFP 2006)
- * `Test.Credit.Finger.Simplified` (Finger trees explained anew, and slightly simplified (functional pearl). Koen Claessen. Haskell Symposium 2020)
- * `Test.Credit.Heap.RoundRobin`, `Test.Credit.Heap.Maxiphobic`, `Test.Credit.Heap.Skew` (Fun with binary heap trees. Chris Okasaki. In The Fun of Programming, Jeremy Gibbons and Oege de Moor (Eds). Palgrave 2003)
+ * `Test.Credit.Finger.Original`
+
+From *Finger trees explained anew, and slightly simplified (functional pearl). Koen Claessen. Haskell Symposium 2020*:
+
+ * `Test.Credit.Finger.Simplified`
+
+From *Fun with binary heap trees. Chris Okasaki. In The Fun of Programming, Jeremy Gibbons and Oege de Moor (Eds). Palgrave 2003*:
+
+ * `Test.Credit.Heap.RoundRobin`
+ * `Test.Credit.Heap.Maxiphobic`
+ * `Test.Credit.Heap.Skew` 
 
 Fully In-Place data structures:
 
